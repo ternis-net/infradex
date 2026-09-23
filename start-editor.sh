@@ -16,4 +16,4 @@ if [ ! -f .edit-token ]; then
 fi
 export INFRADEx_EDIT_TOKEN="$(cat .edit-token)"
 echo "editor: http://127.0.0.1:${PORT}/editor.php"
-exec php -S "127.0.0.1:${PORT} ../editor.php"
+exec php -S "127.0.0.1:${PORT}"
