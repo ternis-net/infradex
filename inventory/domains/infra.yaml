@@ -1,8 +1,73 @@
 version: 1
 # Only infra-relevant domains. Full 100+ portfolio lives in index.yaml (generated).
-# hosting_ref = where the A target is hosted (infra_ref in hosts.yaml). NOT rDNS.
-# dns_provider = who serves NS. ternis.net self-hosts; example-dns uses Cloudflare.
+# hosting_ref = where the A target is hosted (infra_ref or host name in hosts.yaml). NOT rDNS.
+# dns_provider: cloudflare | self-hosted (one.ns/two.ns.ternis.net) | nameserver-eu | mixed | other
+# NS/A verified 2026-09-23 via dig.
 domains:
+  - name: ternis.net
+    target_ip: 77.90.15.49
+    hosting_ref: vpn02.eyl
+    ns_set: [margot.ns.cloudflare.com, martin.ns.cloudflare.com]
+    dns_provider: cloudflare
+    purpose: production
+    status: active
+
+  - name: ternis.org
+    target_ip: 77.90.15.3
+    hosting_ref: vweb02
+    ns_set: [margot.ns.cloudflare.com, martin.ns.cloudflare.com]
+    dns_provider: cloudflare
+    purpose: production
+    status: active
+
+  - name: ternis.dev
+    target_ip: 77.90.15.2
+    hosting_ref: vweb01
+    ns_set: [margot.ns.cloudflare.com, martin.ns.cloudflare.com, one.ns.ternis.net, two.ns.ternis.net]
+    dns_provider: mixed
+    purpose: production
+    status: active
+
+  - name: thosted.de
+    target_ip: 77.90.15.2
+    hosting_ref: vweb01
+    ns_set: [nameserver01.eu, nameserver02.eu, nameserver03.eu, nameserver04.eu, nameserver05.eu, nameserver06.eu]
+    dns_provider: nameserver-eu
+    purpose: production
+    status: active
+
+  - name: ternis.link
+    target_ip: 77.90.61.239
+    hosting_ref: kvm07.eyl
+    ns_set: [nameserver01.eu, nameserver02.eu, nameserver03.eu, nameserver04.eu, nameserver05.eu, nameserver06.eu]
+    dns_provider: nameserver-eu
+    purpose: production
+    status: active
+
+  - name: tstatus.de
+    target_ip: 77.90.60.110
+    hosting_ref: kvm10.eyl
+    ns_set: [one.ns.ternis.net, two.ns.ternis.net]
+    dns_provider: self-hosted
+    purpose: production
+    status: active
+
+  - name: ternisdomains.de
+    target_ip: 77.90.60.110
+    hosting_ref: kvm10.eyl
+    ns_set: [one.ns.ternis.net, two.ns.ternis.net]
+    dns_provider: self-hosted
+    purpose: production
+    status: active
+
+  - name: dnbx.de
+    target_ip: 77.90.15.4
+    hosting_ref: vweb03
+    ns_set: [nameserver01.eu, nameserver02.eu, nameserver03.eu, nameserver04.eu, nameserver05.eu, nameserver06.eu]
+    dns_provider: nameserver-eu
+    purpose: production
+    status: active
+
   - name: example-dns.com
     target_ip: 77.90.60.110
     hosting_ref: kvm10.eyl

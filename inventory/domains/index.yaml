@@ -5,7 +5,7 @@ version: 1
 #     registrar: <name>
 #     expiry: YYYY-MM-DD
 #     ns_set: [margot.ns.cloudflare.com, martin.ns.cloudflare.com]  # actual authoritative NS
-#     dns_provider: cloudflare|self-hosted|other  # derived from ns_set, not assumed
+#     dns_provider: cloudflare|self-hosted|nameserver-eu|mixed|other  # derived from ns_set, not assumed
 #     purpose: production|parked|redirect|infra-test
 #     status: active|expired|transfer
 domains: []
