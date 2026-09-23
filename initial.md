@@ -14,6 +14,10 @@
 ### VirtualPrivateNetwork
 - two.vpn 77.90.15.49(vpn02.eyl)
 
+### Other
+- kvm04.eyl.xpsys.de 77.90.60.72(kvm04.eyl)
+- kvm06.eyl.xpsys.de 77.90.60.169(kvm06.eyl)
+
 ## example-dns
 - example-dns.com 77.90.60.110(kvm10.eyl)
 - example-dns.net 77.90.60.110(kvm10.eyl)
