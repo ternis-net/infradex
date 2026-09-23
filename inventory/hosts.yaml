@@ -1,0 +1,154 @@
+version: 1
+# Migrated from initial.md. One entry per host.
+# roles: dns, web, vpn, misc, lab
+# env: prod, lab
+hosts:
+  # prod / dns
+  - name: one.ns
+    fqdn: one.ns.ternis.net
+    addresses: [77.90.60.110]
+    infra_ref: kvm10.eyl
+    role: dns
+    env: prod
+    status: active
+
+  - name: two.ns
+    fqdn: two.ns.ternis.net
+    addresses: [94.249.188.145]
+    infra_ref: kvm11.eyl
+    role: dns
+    env: prod
+    status: active
+
+  - name: three.ns
+    fqdn: three.ns.ternis.net
+    addresses: [77.90.15.49]
+    infra_ref: vpn02.eyl
+    role: dns
+    env: prod
+    status: deprecated
+
+  # prod / web self-operated
+  - name: zero.web
+    fqdn: zero.web.ternis.net
+    addresses: [77.90.60.110]
+    infra_ref: kvm10.eyl
+    role: web
+    env: prod
+    hosting: self-operated
+    status: active
+
+  - name: one.web
+    fqdn: one.web.ternis.net
+    addresses: [77.90.61.239]
+    infra_ref: kvm07.eyl
+    role: web
+    env: prod
+    hosting: self-operated
+    status: active
+
+  # prod / web external
+  - name: vweb01
+    addresses: [77.90.15.2]
+    role: web
+    env: prod
+    hosting: external
+    status: active
+
+  - name: vweb02
+    addresses: [77.90.15.3]
+    role: web
+    env: prod
+    hosting: external
+    status: active
+
+  - name: vweb03
+    addresses: [77.90.15.4]
+    role: web
+    env: prod
+    hosting: external
+    status: active
+
+  - name: plesk-dave
+    addresses: [185.223.31.153]
+    role: web
+    env: prod
+    hosting: external
+    status: deprecated
+
+  - name: plesk-steve
+    addresses: [185.223.31.164]
+    role: web
+    env: prod
+    hosting: external
+    status: active
+
+  # prod / vpn
+  - name: two.vpn
+    fqdn: two.vpn.ternis.net
+    addresses: [77.90.15.49]
+    infra_ref: vpn02.eyl
+    role: vpn
+    env: prod
+    status: active
+
+  # prod / misc
+  - name: kvm04.eyl.xpsys.de
+    addresses: [77.90.60.72]
+    infra_ref: kvm04.eyl
+    role: misc
+    env: prod
+    status: active
+
+  - name: kvm06.eyl.xpsys.de
+    addresses: [77.90.60.169]
+    infra_ref: kvm06.eyl
+    role: misc
+    env: prod
+    status: active
+
+  - name: gray-bison-06866.zap.cloud
+    addresses: [134.255.225.220]
+    infra_ref: kvm02.fra
+    role: misc
+    env: prod
+    status: active
+
+  # lab / internal
+  - name: mini1
+    addresses: [192.168.1.21]
+    role: lab
+    env: lab
+    status: active
+
+  - name: mini2
+    addresses: [192.168.1.22]
+    role: lab
+    env: lab
+    status: active
+
+  - name: mini3
+    addresses: [192.168.1.23, 10.2.3.4]
+    role: lab
+    env: lab
+    status: active
+
+  - name: nas1
+    addresses: [192.168.1.40, 192.168.2.1]
+    role: lab
+    env: lab
+    status: active
+
+  - name: sff1
+    addresses: [192.168.1.31, 10.2.3.7, 10.2.3.8]
+    role: lab
+    env: lab
+    status: active
+
+  # lab / external
+  - name: desk1
+    addresses: [10.2.3.9]
+    role: lab
+    env: lab
+    note: public IP varies (was 0.0.0.0 in initial.md)
+    status: active

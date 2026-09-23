@@ -1,0 +1,12 @@
+# ---> NEVER commit secrets <---
+*.key
+*.pem
+.env
+*.p12
+*_rsa
+*_ed25519
+id_*
+wg*.conf
+terraform.tfstate*
+*.tfstate*
+.terraform/
