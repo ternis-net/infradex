@@ -16,7 +16,7 @@ OUT = Path(__file__).resolve().parent.parent / "inventory" / "domains" / "index.
 def dns_provider_for(ns: list[str]) -> str:
     joined = " ".join(ns).lower()
     has_cf = "cloudflare" in joined
-    has_self = "ns.ternis.net" in joined
+    has_self = "ns.ternis.net" in joined or "example-dns." in joined
     has_eu = "nameserver" in joined and ".eu" in joined
     if has_cf and has_self:
         return "mixed"

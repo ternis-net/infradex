@@ -1,7 +1,7 @@
 version: 1
 # Only infra-relevant domains. Full 100+ portfolio lives in index.yaml (generated).
 # hosting_ref = where the A target is hosted (infra_ref or host name in hosts.yaml). NOT rDNS.
-# dns_provider: cloudflare | self-hosted (one.ns/two.ns.ternis.net) | nameserver-eu | mixed | other
+# dns_provider: cloudflare | self-hosted (one.ns/two.ns.ternis.net, example-dns.net/org) | nameserver-eu | mixed | other
 # NS/A verified 2026-09-23 via dig.
 domains:
   - name: ternis.net
@@ -90,4 +90,13 @@ domains:
     ns_set: [margot.ns.cloudflare.com, martin.ns.cloudflare.com]
     dns_provider: cloudflare
     purpose: production
+    status: active
+
+  - name: domainexample.de
+    target_ip: 77.90.60.110
+    hosting_ref: kvm10.eyl
+    ns_set: [example-dns.net, example-dns.org]
+    dns_provider: self-hosted
+    purpose: example
+    note: demo domain for example-dns by ternis.org; authoritative on kvm10/kvm11, SOA MNAME misconfigured 2026-09-23
     status: active

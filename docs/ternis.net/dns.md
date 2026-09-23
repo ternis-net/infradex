@@ -4,6 +4,10 @@ Self-hosted set (`one.ns.ternis.net` 77.90.60.110 kvm10.eyl,
 `two.ns.ternis.net` 94.249.188.145 kvm11.eyl, `three.ns` deprecated):
 serves `tstatus.de`, `ternisdomains.de`.
 
+Self-hosted via example-dns (`example-dns.net` -> 77.90.60.110,
+`example-dns.org` -> 94.249.188.145, by ternis.org):
+serves `domainexample.de` (purpose: example) -> 77.90.60.110.
+
 Cloudflare (`margot/martin.ns.cloudflare.com`):
 `ternis.net` -> 77.90.15.49, `ternis.org` -> 77.90.15.3,
 `example-dns.com/net` -> 77.90.60.110, `example-dns.org` -> 94.249.188.145.
