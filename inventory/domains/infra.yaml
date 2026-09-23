@@ -1,23 +1,28 @@
 version: 1
 # Only infra-relevant domains. Full 100+ portfolio lives in index.yaml (generated).
+# hosting_ref = where the A target is hosted (infra_ref in hosts.yaml). NOT rDNS.
+# dns_provider = who serves NS. ternis.net self-hosts; example-dns uses Cloudflare.
 domains:
   - name: example-dns.com
     target_ip: 77.90.60.110
-    target_ref: kvm10.eyl
-    ns_set: [one.ns.ternis.net, two.ns.ternis.net]
-    purpose: infra-test
+    hosting_ref: kvm10.eyl
+    ns_set: [margot.ns.cloudflare.com, martin.ns.cloudflare.com]
+    dns_provider: cloudflare
+    purpose: production
     status: active
 
   - name: example-dns.net
     target_ip: 77.90.60.110
-    target_ref: kvm10.eyl
-    ns_set: [one.ns.ternis.net, two.ns.ternis.net]
-    purpose: infra-test
+    hosting_ref: kvm10.eyl
+    ns_set: [margot.ns.cloudflare.com, martin.ns.cloudflare.com]
+    dns_provider: cloudflare
+    purpose: production
     status: active
 
   - name: example-dns.org
     target_ip: 94.249.188.145
-    target_ref: kvm11.eyl
-    ns_set: [one.ns.ternis.net, two.ns.ternis.net]
-    purpose: infra-test
+    hosting_ref: kvm11.eyl
+    ns_set: [margot.ns.cloudflare.com, martin.ns.cloudflare.com]
+    dns_provider: cloudflare
+    purpose: production
     status: active

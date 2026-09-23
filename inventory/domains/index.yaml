@@ -4,7 +4,8 @@ version: 1
 #   - name: example.com
 #     registrar: <name>
 #     expiry: YYYY-MM-DD
-#     ns_set: [one.ns.ternis.net, two.ns.ternis.net]
+#     ns_set: [margot.ns.cloudflare.com, martin.ns.cloudflare.com]  # actual authoritative NS
+#     dns_provider: cloudflare|self-hosted|other  # derived from ns_set, not assumed
 #     purpose: production|parked|redirect|infra-test
 #     status: active|expired|transfer
 domains: []
