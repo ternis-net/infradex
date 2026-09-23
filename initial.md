@@ -25,6 +25,16 @@
 - kvm04.eyl.xpsys.de 77.90.60.72(kvm04.eyl)
 - kvm06.eyl.xpsys.de 77.90.60.169(kvm06.eyl)
 
+### LAB INTERNAL
+- mini1 192.168.1.21
+- mini2 192.168.1.22
+- mini3 192.168.1.23 + 10.2.3.4
+- nas1 (192.168.1.40 + 192.168.2.1)
+- sff1 192.168.1.31 + (10.2.3.7 + 10.2.3.8)
+
+### LAB EXTERNAL
+- desk1 0.0.0.0 + 10.2.3.9
+
 ## example-dns
 - example-dns.com 77.90.60.110(kvm10.eyl)
 - example-dns.net 77.90.60.110(kvm10.eyl)
