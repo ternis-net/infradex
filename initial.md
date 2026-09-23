@@ -8,8 +8,15 @@
 - ~~three.ns 77.90.15.49(vpn02.eyl)~~
 
 ### Webservers
+#### Self-Operated
 - zero.web 77.90.60.110(kvm10.eyl)
 - one.web 77.90.61.239(kvm07.eyl)
+#### External
+- vweb01 77.90.15.2
+- vweb02 77.90.15.3
+- vweb03 77.90.15.4
+- ~~plesk-dave 	185.223.31.153~~
+- plesk-steve 185.223.31.164
 
 ### VirtualPrivateNetwork
 - two.vpn 77.90.15.49(vpn02.eyl)
