@@ -24,6 +24,7 @@
 ### Other
 - kvm04.eyl.xpsys.de 77.90.60.72(kvm04.eyl)
 - kvm06.eyl.xpsys.de 77.90.60.169(kvm06.eyl)
+- gray-bison-06866.zap.cloud 134.255.225.220(kvm02.fra)
 
 ### LAB
 #### INTERNAL
