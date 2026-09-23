@@ -19,6 +19,8 @@ docs/
   domains/portfolio.md
 scripts/
   sync-domains.py  # refresh inventory/domains/index.yaml from registrar
+  start-viewer.sh  # ./scripts/start-viewer.sh [port] -> viewer.php, no token
+  start-editor.sh  # ./scripts/start-editor.sh [port] -> editor.php, uses .edit-token
 viewer.php       # read-only HTML view of inventory (no deps)
 editor.php       # web edit of inventory/domains/infra.yaml, needs INFRADEx_EDIT_TOKEN or .edit-token
 lib/infradex.php # shared YAML-subset parser for viewer/editor
