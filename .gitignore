@@ -10,3 +10,6 @@ wg*.conf
 terraform.tfstate*
 *.tfstate*
 .terraform/
+
+__pycache__/
+*.pyc
