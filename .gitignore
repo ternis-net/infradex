@@ -13,3 +13,5 @@ terraform.tfstate*
 
 __pycache__/
 *.pyc
+.edit-token
+infra.yaml.*.bak

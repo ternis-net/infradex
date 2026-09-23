@@ -19,6 +19,9 @@ docs/
   domains/portfolio.md
 scripts/
   sync-domains.py  # refresh inventory/domains/index.yaml from registrar
+viewer.php       # read-only HTML view of inventory (no deps)
+editor.php       # web edit of inventory/domains/infra.yaml, needs INFRADEx_EDIT_TOKEN or .edit-token
+lib/infradex.php # shared YAML-subset parser for viewer/editor
 _archive/initial.md # original flat list, do not update
 ```
 
