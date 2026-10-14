@@ -42,7 +42,7 @@ code{background:#f4f4f4;padding:0 .3rem}
 </head>
 <body>
 <h1>infradex viewer</h1>
-<nav><a href="editor.php">editor.php</a> (writes <code>inventory/domains/infra.yaml</code>, token required)</nav>
+<nav><a href="editor.php">editor.php</a> (writes <code>inventory/domains/infra.yaml</code>, token required) | <a href="dnbx-editor.php">dnbx-editor.php</a> (dnbx.de PHP array editor)</nav>
 
 <form class="filters" method="get">
 <label>status <select name="status"><option value="">all</option>
@@ -50,7 +50,7 @@ code{background:#f4f4f4;padding:0 .3rem}
 <option value="<?=h($s)?>" <?= $statusFilter===$s?'selected':'' ?>><?=h($s)?></option>
 <?php endforeach ?></select></label>
 <label>host role <select name="role"><option value="">all</option>
-<?php foreach (['dns','web','vpn','misc','lab'] as $r): ?>
+<?php foreach (['dns','web','mail','webmail','vpn','misc','lab'] as $r): ?>
 <option value="<?=h($r)?>" <?= $roleFilter===$r?'selected':'' ?>><?=h($r)?></option>
 <?php endforeach ?></select></label>
 <label>dns provider <select name="dns_provider"><option value="">all</option>

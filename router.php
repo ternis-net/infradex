@@ -10,7 +10,8 @@ if ($uri === '/' || $uri === '/index.php') {
         . '<title>infradex</title></head><body>'
         . '<h1>infradex</h1>'
         . '<ul><li><a href="viewer.php">viewer.php</a> (read-only inventory)</li>'
-        . '<li><a href="editor.php">editor.php</a> (edit domains, token required)</li></ul>'
+        . '<li><a href="editor.php">editor.php</a> (edit infra domains, token required)</li>'
+        . '<li><a href="dnbx-editor.php">dnbx-editor.php</a> (visual editor for dnbx.de PHP array domains)</li></ul>'
         . '</body></html>';
     return;
 }

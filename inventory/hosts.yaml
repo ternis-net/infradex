@@ -1,11 +1,18 @@
 version: 1
 # Migrated from initial.md. One entry per host.
-# roles: dns, web, vpn, misc, lab
+# roles: dns, web, mail, webmail, vpn, misc, lab
 # env: prod, lab
 hosts:
   # prod / dns
+  - name: null.ns
+    fqdn: null.ns.ternis.net
+    addresses: [77.90.60.110]
+    infra_ref: kvm10.eyl
+    role: dns
+    env: prod
+    note: aliases one.ns (zero.ns also resolves here)
+    status: active
 
-  #null.ns: 77.90.60.110
   - name: one.ns
     fqdn: one.ns.ternis.net
     addresses: [77.90.60.110]
@@ -49,30 +56,54 @@ hosts:
     hosting: self-operated
     status: active
 
+  - name: five.web
+    fqdn: five.web.ternis.net
+    addresses: [134.255.225.220]
+    infra_ref: vps02.fra
+    role: web
+    env: prod
+    hosting: self-operated
+    note: zap.cloud Frankfurt (also vps02.eyl in DNS)
+    status: active
+
+  - name: six.web
+    fqdn: six.web.ternis.net
+    addresses: [77.90.60.169]
+    infra_ref: kvm06.eyl
+    role: web
+    env: prod
+    hosting: self-operated
+    status: active
+
+  - name: seven.web
+    fqdn: seven.web.ternis.net
+    addresses: [94.249.179.155]
+    infra_ref: eyl-net
+    role: web
+    env: prod
+    hosting: self-operated
+    status: active
+
+  # prod / mail self-operated
   - name: one.mx
     fqdn: one.mx.ternis.net
     addresses: [134.255.225.220]
-    #infra_ref: vps02.fra
-    infra_ref: vps02.eyl
+    infra_ref: vps02.fra
     role: mail
     env: prod
     hosting: self-operated
+    note: zap.cloud Frankfurt (also vps02.eyl in DNS)
     status: active
 
   - name: one.webmail
     fqdn: one.webmail.ternis.net
     addresses: [134.255.225.220]
-    #infra_ref: vps02.fra
-    infra_ref: vps02.eyl
+    infra_ref: vps02.fra
     role: webmail
     env: prod
     hosting: self-operated
+    note: zap.cloud Frankfurt (also vps02.eyl in DNS)
     status: active
-
-  # --- TODO ---
-  #five.web: 134.255.225.220
-  #six.web: 77.90.60.169
-  #seven.web: 94.249.179.155
 
   # prod / web external
   - name: vweb01
