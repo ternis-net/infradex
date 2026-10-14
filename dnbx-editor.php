@@ -117,7 +117,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $curlErr = curl_error($ch);
-        curl_close($ch);
+        unset($ch);
 
         if ($response === false) {
             http_response_code(502);
