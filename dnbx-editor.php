@@ -1,13 +1,10 @@
 <?php
 /**
- * dnbx-editor.php - Visual UI/UX Domain Manager for dnbx.de (config.php / dnbx.php).
- * Allows loading an "initial array" via file or direct paste, visual editing, and saving back to config.php.
+ * dnbx-editor.php - In-Browser Visual Editor & Exporter for dnbx.de config.php
+ * Fully in-browser workflow: No local copies of config.php are stored in this repository.
  */
 
-const CONFIG_PATH = __DIR__ . '/inventory/domains/dnbx-domains.php';
-const TOKEN_FILE = __DIR__ . '/.edit-token';
-
-$defaultProviders = [
+const DEFAULT_PROVIDERS = [
     'nx' => 'Nexserv',
     'as' => 'A.S.',
     'sk' => 'Sk.',
@@ -16,209 +13,87 @@ $defaultProviders = [
     'hz' => 'Hetzner',
 ];
 
-$fileData = is_file(CONFIG_PATH) ? (@include CONFIG_PATH) : [];
-$knownProviders = is_array($fileData) && isset($fileData['providers']) && is_array($fileData['providers'])
-    ? $fileData['providers']
-    : $defaultProviders;
-
-function get_auth_token(): string {
-    $env = getenv('INFRADEx_EDIT_TOKEN');
-    if (is_string($env) && $env !== '') return trim($env);
-    if (is_file(TOKEN_FILE)) return trim((string)file_get_contents(TOKEN_FILE));
-    return '';
-}
-
-function is_authorized(string $providedToken): bool {
-    $expected = get_auth_token();
-    if ($expected === '') return true; // If no token is set in system, allow local edits
-    return hash_equals($expected, trim($providedToken));
-}
-
-function parse_php_array_code(string $code): array {
-    $code = trim($code);
-    if ($code === '') throw new InvalidArgumentException('Input code is empty.');
-    
-    // Ensure code has php tags or return statement
-    if (!str_contains($code, '<?php')) {
-        $evalCode = "<?php return " . rtrim($code, ';') . ";";
-    } else {
-        $evalCode = $code;
-    }
-    
-    // Test syntax via temporary file with php -l or isolated evaluation
-    $tmp = tempnam(sys_get_temp_dir(), 'dnbx_parse_');
-    file_put_contents($tmp, $evalCode);
-    
-    $lint = shell_exec('php -l ' . escapeshellarg($tmp) . ' 2>&1');
-    if (!str_contains((string)$lint, 'No syntax errors detected')) {
-        @unlink($tmp);
-        throw new RuntimeException("PHP Syntax error in initial array:\n" . trim((string)$lint));
-    }
-    
-    $res = include $tmp;
-    @unlink($tmp);
-    
-    if (!is_array($res) || !isset($res['domains']) || !is_array($res['domains'])) {
-        throw new RuntimeException("Parsed array must return an associative array containing a 'domains' list.");
-    }
-    
-    return $res;
-}
-
-function serialize_to_config_php(array $domains, array $providers = [], ?array $statsMeta = null): string {
-    global $knownProviders;
-    $provMap = !empty($providers) ? $providers : $knownProviders;
-    
-    $out = "<?php\n\nreturn [\n    'providers' => [\n";
-    foreach ($provMap as $k => $v) {
-        $out .= "        " . var_export((string)$k, true) . " => " . var_export((string)$v, true) . ",\n";
-    }
-    $out .= "    ],\n    'domains' => [\n";
-    
-    $currentOwner = null;
-    foreach ($domains as $d) {
-        $owner = (int)($d['owner_id'] ?? 1);
-        if ($currentOwner === null || $currentOwner !== $owner) {
-            $out .= "\n        // Owned by Founder-{$owner}\n";
-            $currentOwner = $owner;
-        }
-        
-        $name = var_export((string)($d['name'] ?? ''), true);
-        $tld = var_export((string)($d['tld'] ?? 'de'), true);
-        $regDate = var_export((string)($d['registration_date'] ?? ''), true);
-        $expDate = var_export((string)($d['expiry_date'] ?? ''), true);
-        
-        $prov = $d['provider_short'] ?? 'nx';
-        if (is_array($prov)) {
-            $provStr = '[' . implode(', ', array_map(fn($x) => var_export((string)$x, true), $prov)) . ']';
-        } else {
-            $provStr = var_export((string)$prov, true);
-        }
-        
-        $desc = $d['description'] ?? null;
-        $descStr = ($desc === null || $desc === '') ? 'null' : var_export((string)$desc, true);
-        
-        $prem = !empty($d['is_premium']) ? 'true' : 'false';
-        $phish = !empty($d['is_phishing_prevention']) ? 'true' : 'false';
-        $arch = !empty($d['is_archived']) ? 'true' : 'false';
-        
-        $out .= "        [\n";
-        $out .= "            'owner_id' => {$owner},\n";
-        $out .= "            'name' => {$name},\n";
-        $out .= "            'tld' => {$tld},\n";
-        $out .= "            'registration_date' => {$regDate},\n";
-        $out .= "            'expiry_date' => {$expDate},\n";
-        $out .= "            'provider_short' => {$provStr},\n";
-        $out .= "            'description' => {$descStr},\n";
-        $out .= "            'is_premium' => {$prem},\n";
-        $out .= "            'is_phishing_prevention' => {$phish},\n";
-        if (!empty($d['is_archived'])) {
-            $out .= "            'is_archived' => true,\n";
-        }
-        $out .= "        ],\n";
-    }
-    
-    $out .= "    ],\n";
-    
-    if (!empty($statsMeta)) {
-        $out .= "\n    'stats_metadata' => [\n";
-        foreach ($statsMeta as $m) {
-            $lbl = var_export((string)($m['label'] ?? ''), true);
-            $note = isset($m['note']) && $m['note'] !== null ? var_export((string)$m['note'], true) : 'null';
-            $muted = !empty($m['muted']) ? 'true' : 'false';
-            $out .= "        ['label' => {$lbl}, 'note' => {$note}, 'muted' => {$muted}],\n";
-        }
-        $out .= "    ],\n";
-    }
-    
-    $out .= "];\n";
-    return $out;
-}
-
-// Handle AJAX actions
+// In-memory AJAX parser for pasted initial PHP arrays
 if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
     header('Content-Type: application/json; charset=utf-8');
     $action = $_POST['action'] ?? '';
-    $token = (string)($_POST['token'] ?? '');
     
-    if (!is_authorized($token)) {
-        http_response_code(403);
-        echo json_encode(['success' => false, 'error' => 'Invalid authentication token. Check .edit-token file.']);
-        exit;
-    }
-    
-    try {
-        if ($action === 'parse_initial_array') {
-            $raw = (string)($_POST['php_code'] ?? '');
-            $parsed = parse_php_array_code($raw);
-            echo json_encode(['success' => true, 'data' => $parsed]);
+    if ($action === 'parse_array') {
+        $raw = trim((string)($_POST['php_code'] ?? ''));
+        if ($raw === '') {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Input array code is empty.']);
             exit;
         }
-        
-        if ($action === 'save_all') {
-            $domains = json_decode((string)($_POST['domains'] ?? '[]'), true);
-            if (!is_array($domains)) throw new RuntimeException('Invalid domains data.');
-            
-            // Backup before write
-            if (is_file(CONFIG_PATH)) {
-                $bakDir = __DIR__ . '/_archive';
-                if (!is_dir($bakDir)) @mkdir($bakDir, 0755, true);
-                @copy(CONFIG_PATH, $bakDir . '/config.php.' . date('Ymd-His') . '.bak');
-            }
-            
-            // Retain stats metadata from current config if available
-            $currentData = is_file(CONFIG_PATH) ? (include CONFIG_PATH) : [];
-            $stats = $currentData['stats_metadata'] ?? [
-                ['label' => 'Active Domains',  'note' => null,                 'muted' => false],
-                ['label' => 'Total Managed',   'note' => null,                 'muted' => false],
-                ['label' => 'Unique TLDs',     'note' => null,                 'muted' => false],
-                ['label' => 'Sold Domains',    'note' => 'Not a marketplace.', 'muted' => true],
-            ];
-            
-            $code = serialize_to_config_php($domains, $knownProviders, $stats);
-            file_put_contents(CONFIG_PATH, $code);
-            
-            echo json_encode(['success' => true, 'count' => count($domains), 'timestamp' => date('H:i:s')]);
-            exit;
-        }
-        
-        throw new RuntimeException('Unknown AJAX action: ' . $action);
-    } catch (Throwable $e) {
-        http_response_code(400);
-        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
-        exit;
-    }
-}
 
-// Initial Data Load
-$initialData = is_file(CONFIG_PATH) ? (include CONFIG_PATH) : ['domains' => []];
-$initialDomains = $initialData['domains'] ?? [];
-$initialCode = is_file(CONFIG_PATH) ? file_get_contents(CONFIG_PATH) : '';
-$hasTokenConfigured = get_auth_token() !== '';
+        if (!str_contains($raw, '<?php')) {
+            $evalCode = "<?php return " . rtrim($raw, ';') . ";";
+        } else {
+            $evalCode = $raw;
+        }
+
+        $tmp = tempnam(sys_get_temp_dir(), 'dnbx_eval_');
+        file_put_contents($tmp, $evalCode);
+
+        $lint = shell_exec('php -l ' . escapeshellarg($tmp) . ' 2>&1');
+        if (!str_contains((string)$lint, 'No syntax errors detected')) {
+            @unlink($tmp);
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => "PHP Syntax error:\n" . trim((string)$lint)]);
+            exit;
+        }
+
+        try {
+            $res = include $tmp;
+            @unlink($tmp);
+
+            if (!is_array($res) || !isset($res['domains']) || !is_array($res['domains'])) {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'error' => "Input array must return an array containing a 'domains' list."]);
+                exit;
+            }
+
+            echo json_encode([
+                'success' => true,
+                'domains' => $res['domains'],
+                'providers' => $res['providers'] ?? DEFAULT_PROVIDERS,
+                'stats_metadata' => $res['stats_metadata'] ?? null,
+            ]);
+            exit;
+        } catch (Throwable $e) {
+            @unlink($tmp);
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+            exit;
+        }
+    }
+
+    http_response_code(400);
+    echo json_encode(['success' => false, 'error' => 'Unknown action']);
+    exit;
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>dnbx.de Config & Domain Editor</title>
+<title>dnbx.de In-Browser Domain Editor</title>
 <style>
 :root {
-    --bg-page: #0f172a;
-    --bg-surface: #1e293b;
-    --bg-surface-elevated: #334155;
-    --border: #475569;
-    --border-subtle: #334155;
-    --text-main: #f8fafc;
-    --text-muted: #94a3b8;
-    --text-faint: #64748b;
+    --bg-page: #090d16;
+    --bg-surface: #111827;
+    --bg-surface-elevated: #1f2937;
+    --border: #374151;
+    --border-subtle: #1f2937;
+    --text-main: #f9fafb;
+    --text-muted: #9ca3af;
+    --text-faint: #6b7280;
     --primary: #3b82f6;
     --primary-hover: #2563eb;
     --success: #10b981;
     --warning: #f59e0b;
     --danger: #ef4444;
-    --accent-purple: #8b5cf6;
-    --accent-cyan: #06b6d4;
     --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
     --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
@@ -265,9 +140,10 @@ header {
     gap: 0.5rem;
 }
 .brand-badge {
-    background: #1e3a8a;
+    background: rgba(59, 130, 246, 0.15);
+    border: 1px solid rgba(59, 130, 246, 0.3);
     color: #93c5fd;
-    font-size: 0.75rem;
+    font-size: 0.72rem;
     padding: 0.15rem 0.5rem;
     border-radius: 9999px;
     font-family: var(--font-mono);
@@ -275,7 +151,7 @@ header {
 .header-actions {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: 0.65rem;
 }
 
 /* BUTTONS */
@@ -283,7 +159,7 @@ header {
     display: inline-flex;
     align-items: center;
     gap: 0.45rem;
-    padding: 0.45rem 0.9rem;
+    padding: 0.45rem 0.85rem;
     font-size: 0.85rem;
     font-weight: 600;
     border-radius: 6px;
@@ -293,15 +169,16 @@ header {
     text-decoration: none;
     color: var(--text-main);
 }
+.btn svg { flex-shrink: 0; }
 .btn-primary { background: var(--primary); color: #fff; }
 .btn-primary:hover { background: var(--primary-hover); }
 .btn-success { background: #059669; color: #fff; }
 .btn-success:hover { background: #047857; }
 .btn-secondary { background: var(--bg-surface-elevated); border-color: var(--border); }
-.btn-secondary:hover { background: #475569; }
+.btn-secondary:hover { background: #374151; }
 .btn-danger { background: rgba(239,68,68,0.2); border-color: rgba(239,68,68,0.4); color: #fca5a5; }
 .btn-danger:hover { background: var(--danger); color: #fff; }
-.btn-icon { padding: 0.35rem 0.65rem; }
+.btn-icon { padding: 0.35rem 0.55rem; }
 
 /* TABS */
 .nav-tabs {
@@ -321,6 +198,9 @@ header {
     font-weight: 600;
     border-radius: 6px;
     cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
     transition: all 0.15s ease;
 }
 .tab-btn.active {
@@ -329,7 +209,6 @@ header {
     box-shadow: 0 1px 3px rgba(0,0,0,0.3);
 }
 
-/* CONTAINER */
 .app-container {
     max-width: 1500px;
     margin: 1.5rem auto;
@@ -352,7 +231,7 @@ header {
     flex-direction: column;
 }
 .stat-label {
-    font-size: 0.75rem;
+    font-size: 0.72rem;
     color: var(--text-muted);
     text-transform: uppercase;
     font-weight: 600;
@@ -365,7 +244,7 @@ header {
     font-family: var(--font-mono);
 }
 
-/* FILTER & SEARCH TOOLBAR */
+/* TOOLBAR */
 .toolbar-panel {
     background: var(--bg-surface);
     border: 1px solid var(--border-subtle);
@@ -405,6 +284,8 @@ header {
     transform: translateY(-50%);
     color: var(--text-faint);
     pointer-events: none;
+    display: flex;
+    align-items: center;
 }
 
 /* PILLS */
@@ -425,6 +306,9 @@ header {
     cursor: pointer;
     transition: all 0.15s ease;
     user-select: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
 }
 .pill:hover { color: var(--text-main); border-color: var(--border); }
 .pill.active {
@@ -459,7 +343,7 @@ header {
     border-radius: 4px;
     display: inline-flex;
     align-items: center;
-    gap: 0.25rem;
+    gap: 0.3rem;
     cursor: pointer;
     user-select: none;
     transition: opacity 0.15s ease;
@@ -519,8 +403,8 @@ tr.is-archived td { opacity: 0.55; }
 
 /* EXPIRY STATUS */
 .expiry-ok { color: var(--text-muted); font-family: var(--font-mono); font-size: 0.8rem; }
-.expiry-warn { color: var(--warning); font-weight: 600; font-family: var(--font-mono); font-size: 0.8rem; }
-.expiry-danger { color: var(--danger); font-weight: 700; font-family: var(--font-mono); font-size: 0.8rem; }
+.expiry-warn { color: var(--warning); font-weight: 600; font-family: var(--font-mono); font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.25rem; }
+.expiry-danger { color: var(--danger); font-weight: 700; font-family: var(--font-mono); font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.25rem; }
 
 /* MODALS */
 .modal-overlay {
@@ -564,7 +448,6 @@ tr.is-archived td { opacity: 0.55; }
     gap: 0.75rem;
 }
 
-/* FORM ELEMENTS */
 .form-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -593,17 +476,16 @@ tr.is-archived td { opacity: 0.55; }
 .form-control:focus { border-color: var(--primary); }
 textarea.form-control { resize: vertical; min-height: 80px; font-family: inherit; }
 
-/* CODE EDITOR VIEW */
+/* CODE PANEL */
 .code-panel {
     background: #090d16;
     border: 1px solid var(--border);
     border-radius: 10px;
     padding: 1.25rem;
-    font-family: var(--font-mono);
 }
 .code-textarea {
     width: 100%;
-    min-height: 480px;
+    min-height: 520px;
     background: transparent;
     border: none;
     color: #e2e8f0;
@@ -613,6 +495,19 @@ textarea.form-control { resize: vertical; min-height: 80px; font-family: inherit
     outline: none;
     resize: vertical;
 }
+
+/* EMPTY STATE */
+.empty-banner {
+    background: var(--bg-surface);
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    padding: 3.5rem 2rem;
+    text-align: center;
+    max-width: 650px;
+    margin: 3rem auto;
+}
+.empty-banner h3 { font-size: 1.35rem; font-weight: 700; margin-bottom: 0.5rem; }
+.empty-banner p { color: var(--text-muted); font-size: 0.95rem; margin-bottom: 1.5rem; }
 
 /* TOAST */
 #toast {
@@ -641,22 +536,72 @@ textarea.form-control { resize: vertical; min-height: 80px; font-family: inherit
 </head>
 <body>
 
+<!-- SVG SYMBOL DEFINITIONS (Zero Emojis) -->
+<svg style="display:none;">
+    <symbol id="icon-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+    </symbol>
+    <symbol id="icon-star" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1">
+        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+    </symbol>
+    <symbol id="icon-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+    </symbol>
+    <symbol id="icon-archive" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/>
+    </symbol>
+    <symbol id="icon-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+    </symbol>
+    <symbol id="icon-edit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
+    </symbol>
+    <symbol id="icon-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+    </symbol>
+    <symbol id="icon-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+    </symbol>
+    <symbol id="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+    </symbol>
+    <symbol id="icon-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+    </symbol>
+    <symbol id="icon-code" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
+    </symbol>
+</svg>
+
 <header>
     <div class="header-container">
         <div class="brand-group">
-            <span class="brand-title">dnbx.de <span class="brand-badge">config.php</span></span>
+            <span class="brand-title">dnbx.de <span class="brand-badge">In-Browser Editor</span></span>
             <div class="nav-tabs">
-                <button class="tab-btn active" id="tabBtnVisual" onclick="switchTab('visual')">Visual Editor</button>
-                <button class="tab-btn" id="tabBtnCode" onclick="switchTab('code')">Initial Array / Raw PHP</button>
+                <button class="tab-btn active" id="tabBtnVisual" onclick="switchTab('visual')">
+                    Visual Manager
+                </button>
+                <button class="tab-btn" id="tabBtnCode" onclick="switchTab('code')">
+                    <svg width="14" height="14"><use href="#icon-code"/></svg>
+                    Initial Array / PHP Code
+                </button>
             </div>
         </div>
 
         <div class="header-actions">
-            <!-- Global Auth Token -->
-            <input type="password" id="authToken" class="form-control" style="width: 150px; font-size: 0.8rem; padding: 0.35rem 0.6rem;" placeholder="Auth token...">
-            <button class="btn btn-primary" onclick="openAddModal()">+ Add Domain</button>
-            <button class="btn btn-success" onclick="saveAllChanges()">Save to config.php</button>
-            <a href="viewer.php" class="btn btn-secondary btn-icon" title="Infradex Viewer">&larr; Viewer</a>
+            <button class="btn btn-secondary" onclick="openAddModal()">
+                <svg width="14" height="14"><use href="#icon-plus"/></svg>
+                Add Domain
+            </button>
+            <button class="btn btn-primary" onclick="copyPhpCode()">
+                <svg width="14" height="14"><use href="#icon-copy"/></svg>
+                Copy PHP
+            </button>
+            <button class="btn btn-success" onclick="downloadConfigFile()">
+                <svg width="14" height="14"><use href="#icon-download"/></svg>
+                Download config.php
+            </button>
+            <a href="viewer.php" class="btn btn-secondary btn-icon" title="Return to Infradex Viewer">&larr;</a>
         </div>
     </div>
 </header>
@@ -665,98 +610,129 @@ textarea.form-control { resize: vertical; min-height: 80px; font-family: inherit
 
     <!-- VIEW 1: VISUAL DOMAIN MANAGER -->
     <div id="viewVisual">
-        <!-- STATS -->
-        <div class="stats-grid">
-            <div class="stat-card">
-                <span class="stat-label">Total Managed</span>
-                <span class="stat-value" id="statTotal">0</span>
+
+        <!-- EMPTY STATE IF NO ARRAY LOADED -->
+        <div id="emptyBanner" class="empty-banner" style="display:none;">
+            <h3>No Initial Array Loaded</h3>
+            <p>Paste your <code>config.php</code> array from the <strong>dnbx.de</strong> repository to view and edit your domains visually. Everything runs 100% in-browser.</p>
+            <button class="btn btn-primary" onclick="switchTab('code')">
+                <svg width="14" height="14"><use href="#icon-code"/></svg>
+                Paste Initial Array
+            </button>
+        </div>
+
+        <div id="visualContent">
+            <!-- STATS (Active Domains = non-expired AND non-archived) -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <span class="stat-label">Total Managed</span>
+                    <span class="stat-value" id="statTotal">0</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-label">Active Domains</span>
+                    <span class="stat-value" style="color:var(--success)" id="statActive">0</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-label">Expiring Soon / Expired</span>
+                    <span class="stat-value" style="color:var(--warning)" id="statExpiring">0</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-label">Premium</span>
+                    <span class="stat-value" style="color:#facc15" id="statPremium">0</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-label">Phishing Prevention</span>
+                    <span class="stat-value" style="color:#f87171" id="statPhishing">0</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-label">Unique TLDs</span>
+                    <span class="stat-value" id="statTlds">0</span>
+                </div>
             </div>
-            <div class="stat-card">
-                <span class="stat-label">Active Domains</span>
-                <span class="stat-value" style="color:var(--success)" id="statActive">0</span>
+
+            <!-- SEARCH & FILTER TOOLBAR -->
+            <div class="toolbar-panel">
+                <div class="toolbar-row">
+                    <div class="search-input-wrap">
+                        <span class="search-icon"><svg width="15" height="15"><use href="#icon-search"/></svg></span>
+                        <input type="text" id="searchInput" class="search-input" placeholder="Search domain name, TLD, description..." oninput="renderTable()">
+                    </div>
+                    
+                    <div class="pills-group" id="statusFilterPills">
+                        <span class="pill active" data-filter="all" onclick="setStatusFilter('all')">All</span>
+                        <span class="pill" data-filter="active" onclick="setStatusFilter('active')">Active</span>
+                        <span class="pill" data-filter="archived" onclick="setStatusFilter('archived')">
+                            <svg width="12" height="12"><use href="#icon-archive"/></svg> Archived
+                        </span>
+                        <span class="pill" data-filter="premium" onclick="setStatusFilter('premium')">
+                            <svg width="12" height="12"><use href="#icon-star"/></svg> Premium
+                        </span>
+                        <span class="pill" data-filter="phishing" onclick="setStatusFilter('phishing')">
+                            <svg width="12" height="12"><use href="#icon-shield"/></svg> Phishing
+                        </span>
+                        <span class="pill" data-filter="expired" onclick="setStatusFilter('expired')">
+                            <svg width="12" height="12"><use href="#icon-alert"/></svg> Expired
+                        </span>
+                    </div>
+                </div>
+
+                <div class="toolbar-row" style="font-size:0.8rem; justify-content:space-between">
+                    <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap">
+                        <span style="color:var(--text-faint); font-weight:600">TLD:</span>
+                        <div id="tldFilterPills" class="pills-group"></div>
+                    </div>
+
+                    <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap">
+                        <span style="color:var(--text-faint); font-weight:600">Provider:</span>
+                        <div id="provFilterPills" class="pills-group"></div>
+                    </div>
+                </div>
             </div>
-            <div class="stat-card">
-                <span class="stat-label">Expiring Soon / Expired</span>
-                <span class="stat-value" style="color:var(--warning)" id="statExpiring">0</span>
-            </div>
-            <div class="stat-card">
-                <span class="stat-label">Premium</span>
-                <span class="stat-value" style="color:#facc15" id="statPremium">0</span>
-            </div>
-            <div class="stat-card">
-                <span class="stat-label">Phishing Prevention</span>
-                <span class="stat-value" style="color:#f87171" id="statPhishing">0</span>
-            </div>
-            <div class="stat-card">
-                <span class="stat-label">Unique TLDs</span>
-                <span class="stat-value" id="statTlds">0</span>
+
+            <!-- DOMAINS TABLE -->
+            <div class="table-panel">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Domain</th>
+                            <th>Owner</th>
+                            <th>Provider(s)</th>
+                            <th>Expires</th>
+                            <th>Flags</th>
+                            <th style="text-align:right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="domainsTableBody"></tbody>
+                </table>
             </div>
         </div>
 
-        <!-- SEARCH & FILTER TOOLBAR -->
-        <div class="toolbar-panel">
-            <div class="toolbar-row">
-                <div class="search-input-wrap">
-                    <span class="search-icon">🔍</span>
-                    <input type="text" id="searchInput" class="search-input" placeholder="Search domain name, TLD, description..." oninput="renderTable()">
-                </div>
-                
-                <div class="pills-group" id="statusFilterPills">
-                    <span class="pill active" data-filter="all" onclick="setStatusFilter('all')">All</span>
-                    <span class="pill" data-filter="active" onclick="setStatusFilter('active')">Active</span>
-                    <span class="pill" data-filter="archived" onclick="setStatusFilter('archived')">Archived</span>
-                    <span class="pill" data-filter="premium" onclick="setStatusFilter('premium')">Premium ⭐</span>
-                    <span class="pill" data-filter="phishing" onclick="setStatusFilter('phishing')">Phishing 🛡️</span>
-                    <span class="pill" data-filter="expired" onclick="setStatusFilter('expired')">Expired ⚠️</span>
-                </div>
-            </div>
-
-            <div class="toolbar-row" style="font-size:0.8rem; justify-content:space-between">
-                <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap">
-                    <span style="color:var(--text-faint); font-weight:600">TLD:</span>
-                    <div id="tldFilterPills" class="pills-group"></div>
-                </div>
-
-                <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap">
-                    <span style="color:var(--text-faint); font-weight:600">Provider:</span>
-                    <div id="provFilterPills" class="pills-group"></div>
-                </div>
-            </div>
-        </div>
-
-        <!-- DOMAINS TABLE -->
-        <div class="table-panel">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Domain</th>
-                        <th>Owner</th>
-                        <th>Provider(s)</th>
-                        <th>Expires</th>
-                        <th>Flags</th>
-                        <th style="text-align:right">Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="domainsTableBody"></tbody>
-            </table>
-        </div>
     </div>
 
-    <!-- VIEW 2: INITIAL ARRAY / CODE VIEW -->
+    <!-- VIEW 2: INITIAL ARRAY INPUT / CODE VIEW -->
     <div id="viewCode" style="display:none;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:1rem">
             <div>
                 <h2 style="font-size:1.25rem; font-weight:700">Initial Array Input & PHP Generator</h2>
-                <p style="color:var(--text-muted); font-size:0.85rem">Paste your initial <code>config.php</code> array below and click "Parse & Load", or view and copy the generated PHP code.</p>
+                <p style="color:var(--text-muted); font-size:0.85rem">Paste your <code>config.php</code> array from <code>dnbx.de</code> here, or edit visually and copy the output. No files are saved to infradex.</p>
             </div>
             <div style="display:flex; gap:0.5rem">
-                <button class="btn btn-secondary" onclick="copyPhpCode()">Copy Code</button>
-                <button class="btn btn-primary" onclick="parseInitialArrayFromInput()">Parse & Load Into Editor</button>
+                <button class="btn btn-secondary" onclick="copyPhpCode()">
+                    <svg width="14" height="14"><use href="#icon-copy"/></svg>
+                    Copy PHP Code
+                </button>
+                <button class="btn btn-success" onclick="downloadConfigFile()">
+                    <svg width="14" height="14"><use href="#icon-download"/></svg>
+                    Download config.php
+                </button>
+                <button class="btn btn-primary" onclick="parsePastedArray()">
+                    Parse & Load Into Editor
+                </button>
             </div>
         </div>
 
         <div class="code-panel">
-            <textarea id="rawPhpTextarea" class="code-textarea" spellcheck="false"><?=htmlspecialchars($initialCode)?></textarea>
+            <textarea id="rawPhpTextarea" class="code-textarea" spellcheck="false" placeholder="// Paste your dnbx.de config.php array here...&#10;return [&#10;    'domains' => [ ... ]&#10;];"></textarea>
         </div>
     </div>
 
@@ -802,17 +778,20 @@ textarea.form-control { resize: vertical; min-height: 80px; font-family: inherit
                 </div>
                 <div class="form-group full">
                     <label class="form-label">Description / Internal Notes</label>
-                    <textarea id="modalDescription" class="form-control" placeholder="Notes on usage, project, etc."></textarea>
+                    <textarea id="modalDescription" class="form-control" placeholder="Notes on project, usage, etc."></textarea>
                 </div>
                 <div class="form-group full" style="flex-direction:row; gap:1.5rem; align-items:center; padding-top:0.5rem">
                     <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer; font-size:0.85rem">
-                        <input type="checkbox" id="modalIsPremium"> Premium
+                        <input type="checkbox" id="modalIsPremium">
+                        <svg width="13" height="13" style="color:#facc15"><use href="#icon-star"/></svg> Premium
                     </label>
                     <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer; font-size:0.85rem">
-                        <input type="checkbox" id="modalIsPhishing"> Phishing Prevention
+                        <input type="checkbox" id="modalIsPhishing">
+                        <svg width="13" height="13" style="color:#f87171"><use href="#icon-shield"/></svg> Phishing Prevention
                     </label>
                     <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer; font-size:0.85rem">
-                        <input type="checkbox" id="modalIsArchived"> Archived
+                        <input type="checkbox" id="modalIsArchived">
+                        <svg width="13" height="13" style="color:#94a3b8"><use href="#icon-archive"/></svg> Archived
                     </label>
                 </div>
             </div>
@@ -827,25 +806,42 @@ textarea.form-control { resize: vertical; min-height: 80px; font-family: inherit
 <div id="toast"></div>
 
 <script>
-// Known Providers from PHP
-const KNOWN_PROVIDERS = <?=json_encode($knownProviders)?>;
+// Known Providers (Fallback / Default)
+let knownProviders = <?=json_encode(DEFAULT_PROVIDERS)?>;
+let statsMetadata = [
+    { label: 'Active Domains', note: null, muted: false },
+    { label: 'Total Managed', note: null, muted: false },
+    { label: 'Unique TLDs', note: null, muted: false },
+    { label: 'Sold Domains', note: 'Not a marketplace.', muted: true }
+];
 
-// Client State
-let domains = <?=json_encode($initialDomains)?>;
+// In-Browser State (Stored purely in browser localStorage)
+let domains = [];
 let currentStatusFilter = 'all';
 let currentTldFilter = 'all';
 let currentProvFilter = 'all';
 
-// Load saved auth token from localStorage
-const tokenInput = document.getElementById('authToken');
-if (localStorage.getItem('dnbx_edit_token')) {
-    tokenInput.value = localStorage.getItem('dnbx_edit_token');
+// Load stored session from browser localStorage if available
+try {
+    const saved = localStorage.getItem('dnbx_browser_domains');
+    if (saved) {
+        domains = JSON.parse(saved);
+    }
+    const savedProvs = localStorage.getItem('dnbx_browser_providers');
+    if (savedProvs) {
+        knownProviders = JSON.parse(savedProvs);
+    }
+} catch (e) {
+    console.warn('Storage load error', e);
 }
-tokenInput.addEventListener('input', () => {
-    localStorage.setItem('dnbx_edit_token', tokenInput.value);
-});
 
-// Toast notification
+function persistToBrowser() {
+    try {
+        localStorage.setItem('dnbx_browser_domains', JSON.stringify(domains));
+        localStorage.setItem('dnbx_browser_providers', JSON.stringify(knownProviders));
+    } catch (e) {}
+}
+
 function showToast(msg, type = 'info') {
     const t = document.getElementById('toast');
     t.textContent = msg;
@@ -853,29 +849,25 @@ function showToast(msg, type = 'info') {
     setTimeout(() => { t.className = ''; }, 3500);
 }
 
-// Switch between Visual & Code views
 function switchTab(tab) {
     document.getElementById('viewVisual').style.display = tab === 'visual' ? 'block' : 'none';
     document.getElementById('viewCode').style.display = tab === 'code' ? 'block' : 'none';
     document.getElementById('tabBtnVisual').className = 'tab-btn ' + (tab === 'visual' ? 'active' : '');
     document.getElementById('tabBtnCode').className = 'tab-btn ' + (tab === 'code' ? 'active' : '');
-    if (tab === 'code') {
-        updateRawPhpPreview();
+    if (tab === 'code' && domains.length > 0) {
+        document.getElementById('rawPhpTextarea').value = generatePurePhpCode();
     }
 }
 
-// Render dynamic filter pills
 function renderFilterPills() {
-    // TLDs
     const tlds = [...new Set(domains.map(d => d.tld || 'de'))].sort();
     const tldWrap = document.getElementById('tldFilterPills');
     tldWrap.innerHTML = `<span class="pill ${currentTldFilter === 'all' ? 'active' : ''}" onclick="setTldFilter('all')">All</span>` +
         tlds.map(t => `<span class="pill ${currentTldFilter === t ? 'active' : ''}" onclick="setTldFilter('${t}')">.${t}</span>`).join('');
 
-    // Providers
     const provWrap = document.getElementById('provFilterPills');
     provWrap.innerHTML = `<span class="pill ${currentProvFilter === 'all' ? 'active' : ''}" onclick="setProvFilter('all')">All</span>` +
-        Object.entries(KNOWN_PROVIDERS).map(([code, name]) => 
+        Object.entries(knownProviders).map(([code, name]) => 
             `<span class="pill ${currentProvFilter === code ? 'active' : ''}" onclick="setProvFilter('${code}')">${code} (${name})</span>`
         ).join('');
 }
@@ -890,8 +882,20 @@ function setStatusFilter(f) {
 function setTldFilter(t) { currentTldFilter = t; renderFilterPills(); renderTable(); }
 function setProvFilter(p) { currentProvFilter = p; renderFilterPills(); renderTable(); }
 
-// Render Domain Table
+// Render Domain Table & Calculate Active Domains (non-expired AND non-archived)
 function renderTable() {
+    const emptyBanner = document.getElementById('emptyBanner');
+    const visualContent = document.getElementById('visualContent');
+
+    if (domains.length === 0) {
+        emptyBanner.style.display = 'block';
+        visualContent.style.display = 'none';
+        return;
+    } else {
+        emptyBanner.style.display = 'none';
+        visualContent.style.display = 'block';
+    }
+
     const q = document.getElementById('searchInput').value.toLowerCase().trim();
     const now = new Date();
     const tbody = document.getElementById('domainsTableBody');
@@ -905,7 +909,7 @@ function renderTable() {
         const fullName = `${d.name}.${d.tld}`.toLowerCase();
         const desc = (d.description || '').toLowerCase();
         
-        // Expiry check
+        // Expiry calculation
         let isExpired = false;
         let isExpiringSoon = false;
         if (d.expiry_date) {
@@ -917,27 +921,29 @@ function renderTable() {
             }
         }
 
-        // Stats calculation
-        if (!d.is_archived) statActive++;
+        // Active Domain Definition: ONLY count non-expired AND non-archived domains
+        const isActive = !d.is_archived && !isExpired;
+
+        if (isActive) statActive++;
         if (isExpired || isExpiringSoon) statExpiring++;
         if (d.is_premium) statPrem++;
         if (d.is_phishing_prevention) statPhish++;
         if (d.tld) tldSet.add(d.tld);
 
-        // Filter: Search query
+        // Filter search
         if (q && !fullName.includes(q) && !desc.includes(q)) return false;
 
-        // Filter: Status
-        if (currentStatusFilter === 'active' && d.is_archived) return false;
+        // Filter status
+        if (currentStatusFilter === 'active' && !isActive) return false;
         if (currentStatusFilter === 'archived' && !d.is_archived) return false;
         if (currentStatusFilter === 'premium' && !d.is_premium) return false;
         if (currentStatusFilter === 'phishing' && !d.is_phishing_prevention) return false;
         if (currentStatusFilter === 'expired' && !isExpired && !isExpiringSoon) return false;
 
-        // Filter: TLD
+        // Filter TLD
         if (currentTldFilter !== 'all' && (d.tld || 'de') !== currentTldFilter) return false;
 
-        // Filter: Provider
+        // Filter Provider
         if (currentProvFilter !== 'all') {
             const p = d.provider_short;
             const matches = Array.isArray(p) ? p.includes(currentProvFilter) : p === currentProvFilter;
@@ -947,7 +953,6 @@ function renderTable() {
         return true;
     });
 
-    // Update Stats Card Numbers
     document.getElementById('statTotal').textContent = domains.length;
     document.getElementById('statActive').textContent = statActive;
     document.getElementById('statExpiring').textContent = statExpiring;
@@ -964,29 +969,36 @@ function renderTable() {
         const tr = document.createElement('tr');
         if (d.is_archived) tr.className = 'is-archived';
 
-        // Providers
         const provs = Array.isArray(d.provider_short) ? d.provider_short : [d.provider_short || 'nx'];
         const provBadges = provs.map(p => {
-            const label = KNOWN_PROVIDERS[p] || p;
+            const label = knownProviders[p] || p;
             return `<span class="badge-provider badge-${p}" title="${label}">${p.toUpperCase()}</span>`;
         }).join(' ');
 
-        // Expiry formatting
-        let expiryHtml = `<span class="expiry-ok">${d.expiry_date || '–'}</span>`;
+        let expiryHtml = `<span class="expiry-ok">${escapeHtml(d.expiry_date || '–')}</span>`;
         if (d.expiry_date) {
             const exp = new Date(d.expiry_date);
             if (!isNaN(exp)) {
                 const diffDays = (exp - now) / (1000 * 60 * 60 * 24);
-                if (diffDays < 0) expiryHtml = `<span class="expiry-danger" title="Expired">${d.expiry_date} (Expired)</span>`;
-                else if (diffDays <= 30) expiryHtml = `<span class="expiry-warn" title="Expiring soon">${d.expiry_date} (${Math.ceil(diffDays)}d)</span>`;
+                if (diffDays < 0) {
+                    expiryHtml = `<span class="expiry-danger" title="Expired"><svg width="12" height="12"><use href="#icon-alert"/></svg> ${escapeHtml(d.expiry_date)} (Expired)</span>`;
+                } else if (diffDays <= 30) {
+                    expiryHtml = `<span class="expiry-warn" title="Expiring soon"><svg width="12" height="12"><use href="#icon-alert"/></svg> ${escapeHtml(d.expiry_date)} (${Math.ceil(diffDays)}d)</span>`;
+                }
             }
         }
 
-        // Flags HTML with one-click toggles
+        // SVG chips without emojis
         const flagsHtml = `
-            <span class="chip chip-premium ${d.is_premium ? 'active' : 'inactive'}" onclick="toggleFlag(${d._originalIndex}, 'is_premium')">⭐ Premium</span>
-            <span class="chip chip-phishing ${d.is_phishing_prevention ? 'active' : 'inactive'}" onclick="toggleFlag(${d._originalIndex}, 'is_phishing_prevention')">🛡️ Phish</span>
-            <span class="chip chip-archived ${d.is_archived ? 'active' : 'inactive'}" onclick="toggleFlag(${d._originalIndex}, 'is_archived')">📦 Arch</span>
+            <span class="chip chip-premium ${d.is_premium ? 'active' : 'inactive'}" onclick="toggleFlag(${d._originalIndex}, 'is_premium')">
+                <svg width="11" height="11"><use href="#icon-star"/></svg> Premium
+            </span>
+            <span class="chip chip-phishing ${d.is_phishing_prevention ? 'active' : 'inactive'}" onclick="toggleFlag(${d._originalIndex}, 'is_phishing_prevention')">
+                <svg width="11" height="11"><use href="#icon-shield"/></svg> Phish
+            </span>
+            <span class="chip chip-archived ${d.is_archived ? 'active' : 'inactive'}" onclick="toggleFlag(${d._originalIndex}, 'is_archived')">
+                <svg width="11" height="11"><use href="#icon-archive"/></svg> Arch
+            </span>
         `;
 
         tr.innerHTML = `
@@ -999,36 +1011,40 @@ function renderTable() {
             <td>${expiryHtml}</td>
             <td>${flagsHtml}</td>
             <td style="text-align:right">
-                <button class="btn btn-secondary btn-icon" onclick="openEditModal(${d._originalIndex})">✏️</button>
-                <button class="btn btn-danger btn-icon" onclick="deleteDomain(${d._originalIndex})">🗑️</button>
+                <button class="btn btn-secondary btn-icon" onclick="openEditModal(${d._originalIndex})" title="Edit">
+                    <svg width="13" height="13"><use href="#icon-edit"/></svg>
+                </button>
+                <button class="btn btn-danger btn-icon" onclick="deleteDomain(${d._originalIndex})" title="Delete">
+                    <svg width="13" height="13"><use href="#icon-trash"/></svg>
+                </button>
             </td>
         `;
         tbody.appendChild(tr);
     });
 }
 
-// Quick toggle flags directly on the row
 function toggleFlag(index, flagName) {
     if (domains[index]) {
         domains[index][flagName] = !domains[index][flagName];
+        persistToBrowser();
         renderTable();
         showToast(`Toggled ${flagName} on ${domains[index].name}.${domains[index].tld}`);
     }
 }
 
-// Delete domain
 function deleteDomain(index) {
     const d = domains[index];
     if (!d) return;
-    if (confirm(`Are you sure you want to delete ${d.name}.${d.tld}?`)) {
+    if (confirm(`Delete ${d.name}.${d.tld}?`)) {
         domains.splice(index, 1);
+        persistToBrowser();
         renderFilterPills();
         renderTable();
         showToast(`Deleted ${d.name}.${d.tld}`, 'error');
     }
 }
 
-// Modal handling
+// Modal
 function openAddModal() {
     document.getElementById('modalTitle').textContent = 'Add New Domain';
     document.getElementById('editDomainIndex').value = '-1';
@@ -1071,7 +1087,7 @@ function closeModal() {
 
 function renderModalProviderBoxes(selectedList) {
     const wrap = document.getElementById('modalProviderCheckboxes');
-    wrap.innerHTML = Object.entries(KNOWN_PROVIDERS).map(([code, name]) => {
+    wrap.innerHTML = Object.entries(knownProviders).map(([code, name]) => {
         const isChecked = selectedList.includes(code);
         return `
             <label style="background:var(--bg-page); border:1px solid var(--border); padding:0.25rem 0.5rem; border-radius:6px; font-size:0.8rem; display:flex; align-items:center; gap:0.35rem; cursor:pointer">
@@ -1114,16 +1130,17 @@ function saveModalDomain() {
         showToast(`Added ${name}.${tld}`, 'success');
     }
 
+    persistToBrowser();
     closeModal();
     renderFilterPills();
     renderTable();
 }
 
-// Generate Raw PHP Code
-function generatePhpCode() {
+// Generate PURE PHP array return string (NO define(), variable-safe)
+function generatePurePhpCode() {
     let out = "<?php\n\nreturn [\n    'providers' => [\n";
-    for (const [k, v] of Object.entries(KNOWN_PROVIDERS)) {
-        out += `        '${k}' => '${v}',\n`;
+    for (const [k, v] of Object.entries(knownProviders)) {
+        out += `        '${k}' => '${addslashes(v)}',\n`;
     }
     out += "    ],\n    'domains' => [\n";
 
@@ -1167,68 +1184,79 @@ function generatePhpCode() {
         out += "        ],\n";
     });
 
-    out += "    ],\n];\n";
+    out += "    ],\n";
+
+    if (statsMetadata && Array.isArray(statsMetadata)) {
+        out += "\n    'stats_metadata' => [\n";
+        statsMetadata.forEach(m => {
+            const lbl = `'${addslashes(m.label || '')}'`;
+            const note = m.note ? `'${addslashes(m.note)}'` : 'null';
+            const muted = m.muted ? 'true' : 'false';
+            out += `        ['label' => ${lbl}, 'note' => ${note}, 'muted' => ${muted}],\n`;
+        });
+        out += "    ],\n";
+    }
+
+    out += "];\n";
     return out;
 }
 
-function updateRawPhpPreview() {
-    document.getElementById('rawPhpTextarea').value = generatePhpCode();
-}
-
 function copyPhpCode() {
-    const txt = document.getElementById('rawPhpTextarea');
-    txt.select();
-    navigator.clipboard.writeText(txt.value).then(() => {
-        showToast('PHP array code copied to clipboard!', 'success');
+    const code = generatePurePhpCode();
+    navigator.clipboard.writeText(code).then(() => {
+        showToast('Pure config.php array copied to clipboard!', 'success');
+    }).catch(() => {
+        document.getElementById('rawPhpTextarea').value = code;
+        document.getElementById('rawPhpTextarea').select();
+        document.execCommand('copy');
+        showToast('Copied to clipboard!', 'success');
     });
 }
 
-// Parse Initial Array from direct input textarea
-async function parseInitialArrayFromInput() {
-    const raw = document.getElementById('rawPhpTextarea').value;
-    const token = document.getElementById('authToken').value;
+function downloadConfigFile() {
+    const code = generatePurePhpCode();
+    const blob = new Blob([code], { type: 'application/x-php' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'config.php';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('Downloaded config.php', 'success');
+}
+
+// Parse pasted array from input
+async function parsePastedArray() {
+    const raw = document.getElementById('rawPhpTextarea').value.trim();
+    if (!raw) {
+        alert('Please paste a PHP array first.');
+        return;
+    }
     
-    showToast('Parsing initial PHP array...', 'info');
+    showToast('Validating and parsing array in-memory...', 'info');
 
     const form = new FormData();
-    form.append('action', 'parse_initial_array');
+    form.append('action', 'parse_array');
     form.append('php_code', raw);
-    form.append('token', token);
 
     try {
         const res = await fetch('dnbx-editor.php?ajax=1', { method: 'POST', body: form });
         const json = await res.json();
-        if (!json.success) throw new Error(json.error || 'Parse failed');
-        
-        domains = json.data.domains || [];
-        showToast(`Successfully loaded ${domains.length} domains into editor!`, 'success');
+        if (!json.success) throw new Error(json.error || 'Parsing failed');
+
+        domains = json.domains || [];
+        if (json.providers) knownProviders = json.providers;
+        if (json.stats_metadata) statsMetadata = json.stats_metadata;
+
+        persistToBrowser();
         renderFilterPills();
         renderTable();
         switchTab('visual');
+        showToast(`Loaded ${domains.length} domains successfully into browser!`, 'success');
     } catch (e) {
-        alert('Failed to parse initial array: ' + e.message);
-        showToast(e.message, 'error');
-    }
-}
-
-// Save all changes back to config.php
-async function saveAllChanges() {
-    const token = document.getElementById('authToken').value;
-    showToast('Saving to config.php...', 'info');
-
-    const form = new FormData();
-    form.append('action', 'save_all');
-    form.append('token', token);
-    form.append('domains', JSON.stringify(domains));
-
-    try {
-        const res = await fetch('dnbx-editor.php?ajax=1', { method: 'POST', body: form });
-        const json = await res.json();
-        if (!json.success) throw new Error(json.error || 'Save failed');
-        
-        showToast(`Saved ${json.count} domains to config.php at ${json.timestamp}`, 'success');
-    } catch (e) {
-        alert('Save error: ' + e.message);
+        alert('Error: ' + e.message);
         showToast(e.message, 'error');
     }
 }
