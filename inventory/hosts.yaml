@@ -4,6 +4,8 @@ version: 1
 # env: prod, lab
 hosts:
   # prod / dns
+
+  #null.ns: 77.90.60.110
   - name: one.ns
     fqdn: one.ns.ternis.net
     addresses: [77.90.60.110]
@@ -46,6 +48,31 @@ hosts:
     env: prod
     hosting: self-operated
     status: active
+
+  - name: one.mx
+    fqdn: one.mx.ternis.net
+    addresses: [134.255.225.220]
+    #infra_ref: vps02.fra
+    infra_ref: vps02.eyl
+    role: mail
+    env: prod
+    hosting: self-operated
+    status: active
+
+  - name: one.webmail
+    fqdn: one.webmail.ternis.net
+    addresses: [134.255.225.220]
+    #infra_ref: vps02.fra
+    infra_ref: vps02.eyl
+    role: webmail
+    env: prod
+    hosting: self-operated
+    status: active
+
+  # --- TODO ---
+  #five.web: 134.255.225.220
+  #six.web: 77.90.60.169
+  #seven.web: 94.249.179.155
 
   # prod / web external
   - name: vweb01
