@@ -1520,6 +1520,42 @@ async function fetchSkProducts() {
     }
 }
 
+// Helper to get normalized domain name from SK product
+function getSkDomainName(p) {
+    if (p.productInfo && p.productInfo.domain) {
+        return p.productInfo.domain.toLowerCase().trim();
+    }
+    const name = (p.customName || p.id || '').toLowerCase().trim();
+    return name;
+}
+
+// Parse date string into timestamp (or null if empty/invalid)
+function parseDateTimestamp(dStr) {
+    if (!dStr) return null;
+    const str = String(dStr).trim();
+    if (!str || str === '0000-00-00 00:00:00' || str === '0000-00-00' || str === '–') return null;
+    const t = Date.parse(str.replace(/-/g, '/')); // cross-browser date parse
+    return isNaN(t) ? null : t;
+}
+
+// Registration / CreatedAt: oldest date wins (most in the past / earliest in history)
+function pickEarliestDate(existingDate, newDate) {
+    const tExisting = parseDateTimestamp(existingDate);
+    const tNew = parseDateTimestamp(newDate);
+    if (tExisting === null) return newDate || '';
+    if (tNew === null) return existingDate || '';
+    return tNew < tExisting ? newDate : existingDate;
+}
+
+// Expiry: latest date wins (most in the future)
+function pickLatestDate(existingDate, newDate) {
+    const tExisting = parseDateTimestamp(existingDate);
+    const tNew = parseDateTimestamp(newDate);
+    if (tExisting === null) return newDate || '';
+    if (tNew === null) return existingDate || '';
+    return tNew > tExisting ? newDate : existingDate;
+}
+
 function renderSkTable() {
     const wrap = document.getElementById('skResultsWrap');
     const tbody = document.getElementById('skTableBody');
@@ -1536,7 +1572,8 @@ function renderSkTable() {
 
     skProducts.forEach((p, idx) => {
         const tr = document.createElement('tr');
-        const customName = p.customName || p.id || '–';
+        const domainName = getSkDomainName(p);
+        const displayName = (p.productInfo && p.productInfo.domain) ? p.productInfo.domain : (p.customName || p.id || '–');
         const pType = p.type || 'server';
         const state = p.state || 'active';
         const createdAt = p.createdAt || '–';
@@ -1545,16 +1582,15 @@ function renderSkTable() {
         const autoRenew = p.autoRenew ? 'Yes' : 'No';
 
         // Check if there's a matching domain in our editor
-        const normalizedName = customName.toLowerCase().trim();
         const matchingDomain = domains.find(d => {
             const fullName = `${d.name}.${d.tld}`.toLowerCase();
-            return fullName === normalizedName || d.name.toLowerCase() === normalizedName;
+            return fullName === domainName || d.name.toLowerCase() === domainName;
         });
 
         tr.innerHTML = `
             <td>
-                <strong>${escapeHtml(customName)}</strong>
-                ${matchingDomain ? `<span class="badge-provider badge-sk" style="margin-left:0.5rem">Matched Editor Domain</span>` : ''}
+                <strong>${escapeHtml(displayName)}</strong>
+                ${matchingDomain ? `<span class="badge-provider badge-sk" style="margin-left:0.5rem">Matched: ${escapeHtml(matchingDomain.name)}.${escapeHtml(matchingDomain.tld)}</span>` : ''}
             </td>
             <td><span class="pill" style="font-size:0.7rem">${escapeHtml(pType)}</span></td>
             <td><span class="status-pill">${escapeHtml(state)}</span></td>
@@ -1579,31 +1615,37 @@ function renderSkTable() {
 function syncSingleSkProduct(idx) {
     const p = skProducts[idx];
     if (!p) return;
-    const customName = (p.customName || '').toLowerCase().trim();
-    if (!customName) {
-        alert('Product customName is empty, cannot match domain.');
+    const domainName = getSkDomainName(p);
+    if (!domainName) {
+        alert('Product domain name is empty, cannot match domain.');
         return;
     }
 
     // Match by full domain name or SLD
-    let match = domains.find(d => `${d.name}.${d.tld}`.toLowerCase() === customName);
+    let match = domains.find(d => `${d.name}.${d.tld}`.toLowerCase() === domainName);
     if (!match) {
-        match = domains.find(d => d.name.toLowerCase() === customName);
+        match = domains.find(d => d.name.toLowerCase() === domainName);
     }
 
     if (!match) {
-        if (confirm(`No domain matching "${customName}" found in editor. Would you like to create it as a new domain?`)) {
+        if (confirm(`No domain matching "${domainName}" found in editor. Would you like to create it as a new domain?`)) {
             importSkProductAsDomain(idx);
         }
         return;
     }
 
-    // Update dates
-    if (p.createdAt) match.registration_date = p.createdAt;
-    if (p.expireAt && p.expireAt !== '0000-00-00 00:00:00') {
-        match.expiry_date = p.expireAt;
-    } else if (p.deletedAt && p.deletedAt !== '0000-00-00 00:00:00') {
-        match.expiry_date = p.deletedAt;
+    // 1. Created At / Registration Date: oldest (earliest) date gets used
+    const skCreated = p.createdAt || '';
+    if (skCreated) {
+        match.registration_date = pickEarliestDate(match.registration_date, skCreated);
+    }
+
+    // 2. Expiry Date: most in the future (latest) gets used
+    const skExpire = (p.expireAt && p.expireAt !== '0000-00-00 00:00:00')
+        ? p.expireAt
+        : ((p.deletedAt && p.deletedAt !== '0000-00-00 00:00:00') ? p.deletedAt : '');
+    if (skExpire) {
+        match.expiry_date = pickLatestDate(match.expiry_date, skExpire);
     }
 
     // Ensure provider includes 'sk'
@@ -1616,7 +1658,7 @@ function syncSingleSkProduct(idx) {
     persistToBrowser();
     renderTable();
     renderSkTable();
-    showToast(`Updated dates for ${match.name}.${match.tld} from SK!`, 'success');
+    showToast(`Synced ${match.name}.${match.tld}: Registered=${match.registration_date || '–'}, Expires=${match.expiry_date || '–'}`, 'success');
 }
 
 // Bulk sync all matching SK domains
@@ -1628,20 +1670,25 @@ function bulkSyncSkDates() {
 
     let syncedCount = 0;
     skProducts.forEach(p => {
-        const customName = (p.customName || '').toLowerCase().trim();
-        if (!customName) return;
+        const domainName = getSkDomainName(p);
+        if (!domainName) return;
 
-        let match = domains.find(d => `${d.name}.${d.tld}`.toLowerCase() === customName);
+        let match = domains.find(d => `${d.name}.${d.tld}`.toLowerCase() === domainName);
         if (!match) {
-            match = domains.find(d => d.name.toLowerCase() === customName);
+            match = domains.find(d => d.name.toLowerCase() === domainName);
         }
 
         if (match) {
-            if (p.createdAt) match.registration_date = p.createdAt;
-            if (p.expireAt && p.expireAt !== '0000-00-00 00:00:00') {
-                match.expiry_date = p.expireAt;
-            } else if (p.deletedAt && p.deletedAt !== '0000-00-00 00:00:00') {
-                match.expiry_date = p.deletedAt;
+            const skCreated = p.createdAt || '';
+            if (skCreated) {
+                match.registration_date = pickEarliestDate(match.registration_date, skCreated);
+            }
+
+            const skExpire = (p.expireAt && p.expireAt !== '0000-00-00 00:00:00')
+                ? p.expireAt
+                : ((p.deletedAt && p.deletedAt !== '0000-00-00 00:00:00') ? p.deletedAt : '');
+            if (skExpire) {
+                match.expiry_date = pickLatestDate(match.expiry_date, skExpire);
             }
 
             if (Array.isArray(match.provider_short)) {
@@ -1667,7 +1714,7 @@ function bulkSyncSkDates() {
 function importSkProductAsDomain(idx) {
     const p = skProducts[idx];
     if (!p) return;
-    const rawName = (p.customName || p.id || '').trim();
+    const rawName = getSkDomainName(p);
     
     // Split into SLD and TLD if contains a dot
     let sld = rawName;
@@ -1683,7 +1730,7 @@ function importSkProductAsDomain(idx) {
         name: sld.toLowerCase(),
         tld: tld.toLowerCase(),
         registration_date: p.createdAt || '',
-        expiry_date: p.expireAt || p.deletedAt || '',
+        expiry_date: (p.expireAt && p.expireAt !== '0000-00-00 00:00:00') ? p.expireAt : (p.deletedAt || ''),
         provider_short: 'sk',
         description: `Imported from SK API (ID: ${p.id || ''})`,
         is_premium: false,
