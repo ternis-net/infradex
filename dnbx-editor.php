@@ -2,6 +2,7 @@
 /**
  * dnbx-editor.php - In-Browser Visual Editor & Exporter for dnbx.de config.php
  * Fully in-browser workflow: No local copies of config.php are stored in this repository.
+ * Features SK Provider API integration for inspecting and syncing domain date ranges.
  */
 
 const DEFAULT_PROVIDERS = [
@@ -13,11 +14,12 @@ const DEFAULT_PROVIDERS = [
     'hz' => 'Hetzner',
 ];
 
-// In-memory AJAX parser for pasted initial PHP arrays
+// In-memory AJAX endpoints (parse pasted PHP arrays & cURL proxy for SK API)
 if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
     header('Content-Type: application/json; charset=utf-8');
     $action = $_POST['action'] ?? '';
     
+    // 1. In-memory array parser
     if ($action === 'parse_array') {
         $raw = trim((string)($_POST['php_code'] ?? ''));
         if ($raw === '') {
@@ -68,6 +70,79 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
         }
     }
 
+    // 2. SK Provider API cURL Proxy (handles CORS safely)
+    if ($action === 'fetch_sk_products') {
+        $apiUrl = trim((string)($_POST['sk_api_url'] ?? ''));
+        $apiKey = trim((string)($_POST['sk_api_key'] ?? ''));
+        $type = trim((string)($_POST['type'] ?? ''));
+
+        if ($apiUrl === '') {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'sk_api_url is required.']);
+            exit;
+        }
+        if ($apiKey === '') {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'sk_api_key is required.']);
+            exit;
+        }
+
+        // Build endpoint
+        $endpoint = rtrim($apiUrl, '/');
+        if (!str_contains($endpoint, '/product/all')) {
+            $endpoint .= '/product/all';
+        }
+
+        if ($type !== '' && $type !== 'all') {
+            $endpoint .= (str_contains($endpoint, '?') ? '&' : '?') . 'type=' . urlencode($type);
+        }
+
+        $ch = curl_init($endpoint);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 20);
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Authorization: Bearer ' . $apiKey,
+            'X-API-Key: ' . $apiKey,
+            'Accept: application/json',
+            'Content-Type: application/json',
+        ]);
+        
+        // Pass JSON body if type is specified
+        if ($type !== '' && $type !== 'all') {
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode(['type' => $type]));
+            curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'GET');
+        }
+
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlErr = curl_error($ch);
+        curl_close($ch);
+
+        if ($response === false) {
+            http_response_code(502);
+            echo json_encode(['success' => false, 'error' => 'cURL error connecting to SK API: ' . $curlErr]);
+            exit;
+        }
+
+        $decoded = json_decode($response, true);
+        if (!is_array($decoded)) {
+            http_response_code(502);
+            echo json_encode(['success' => false, 'error' => 'Non-JSON response from SK API (HTTP ' . $httpCode . '): ' . substr($response, 0, 400)]);
+            exit;
+        }
+
+        $products = $decoded['data'] ?? [];
+        echo json_encode([
+            'success' => true,
+            'http_code' => $httpCode,
+            'response_message' => $decoded['response'] ?? 'Fetched products',
+            'state' => $decoded['state'] ?? 'success',
+            'products' => is_array($products) ? $products : [],
+        ]);
+        exit;
+    }
+
     http_response_code(400);
     echo json_encode(['success' => false, 'error' => 'Unknown action']);
     exit;
@@ -94,6 +169,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
     --success: #10b981;
     --warning: #f59e0b;
     --danger: #ef4444;
+    --accent-sk: #c084fc;
     --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
     --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
@@ -174,6 +250,8 @@ header {
 .btn-primary:hover { background: var(--primary-hover); }
 .btn-success { background: #059669; color: #fff; }
 .btn-success:hover { background: #047857; }
+.btn-sk { background: #7e22ce; color: #fff; }
+.btn-sk:hover { background: #6b21a8; }
 .btn-secondary { background: var(--bg-surface-elevated); border-color: var(--border); }
 .btn-secondary:hover { background: #374151; }
 .btn-danger { background: rgba(239,68,68,0.2); border-color: rgba(239,68,68,0.4); color: #fca5a5; }
@@ -406,6 +484,29 @@ tr.is-archived td { opacity: 0.55; }
 .expiry-warn { color: var(--warning); font-weight: 600; font-family: var(--font-mono); font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.25rem; }
 .expiry-danger { color: var(--danger); font-weight: 700; font-family: var(--font-mono); font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.25rem; }
 
+/* SK API PANEL */
+.sk-panel {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+.sk-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.25rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border-subtle);
+}
+.sk-inputs-grid {
+    display: grid;
+    grid-template-columns: 2fr 2fr 1fr auto;
+    gap: 1rem;
+    align-items: end;
+}
+
 /* MODALS */
 .modal-overlay {
     position: fixed;
@@ -536,7 +637,7 @@ textarea.form-control { resize: vertical; min-height: 80px; font-family: inherit
 </head>
 <body>
 
-<!-- SVG SYMBOL DEFINITIONS (Zero Emojis) -->
+<!-- SVG SYMBOL DEFINITIONS (No Emojis) -->
 <svg style="display:none;">
     <symbol id="icon-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
@@ -571,6 +672,15 @@ textarea.form-control { resize: vertical; min-height: 80px; font-family: inherit
     <symbol id="icon-code" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
     </symbol>
+    <symbol id="icon-key" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 2l-2 2m-1.5 1.5L16 7l-2-2-1.5 1.5 2 2L13 10l-2-2-1.5 1.5 2 2L10 13l-2-2-1.5 1.5 2 2L7 16l-2-2-1.5 1.5 2 2L4 19l-2-2"/><circle cx="8" cy="16" r="5"/>
+    </symbol>
+    <symbol id="icon-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+    </symbol>
+    <symbol id="icon-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+    </symbol>
 </svg>
 
 <header>
@@ -580,6 +690,10 @@ textarea.form-control { resize: vertical; min-height: 80px; font-family: inherit
             <div class="nav-tabs">
                 <button class="tab-btn active" id="tabBtnVisual" onclick="switchTab('visual')">
                     Visual Manager
+                </button>
+                <button class="tab-btn" id="tabBtnSk" onclick="switchTab('sk')">
+                    <svg width="14" height="14" style="color:var(--accent-sk)"><use href="#icon-key"/></svg>
+                    SK Provider API
                 </button>
                 <button class="tab-btn" id="tabBtnCode" onclick="switchTab('code')">
                     <svg width="14" height="14"><use href="#icon-code"/></svg>
@@ -614,7 +728,7 @@ textarea.form-control { resize: vertical; min-height: 80px; font-family: inherit
         <!-- EMPTY STATE IF NO ARRAY LOADED -->
         <div id="emptyBanner" class="empty-banner" style="display:none;">
             <h3>No Initial Array Loaded</h3>
-            <p>Paste your <code>config.php</code> array from the <strong>dnbx.de</strong> repository to view and edit your domains visually. Everything runs 100% in-browser.</p>
+            <p>Paste your <code>config.php</code> array from the <strong>dnbx.de</strong> repository to view and edit your domains visually. Everything runs 100% in-browser with zero disk files.</p>
             <button class="btn btn-primary" onclick="switchTab('code')">
                 <svg width="14" height="14"><use href="#icon-code"/></svg>
                 Paste Initial Array
@@ -709,7 +823,87 @@ textarea.form-control { resize: vertical; min-height: 80px; font-family: inherit
 
     </div>
 
-    <!-- VIEW 2: INITIAL ARRAY INPUT / CODE VIEW -->
+    <!-- VIEW 2: SK PROVIDER API INSPECTOR & DATES SYNC -->
+    <div id="viewSk" style="display:none;">
+        <div class="sk-panel">
+            <div class="sk-header">
+                <div>
+                    <h2 style="font-size:1.25rem; font-weight:700; display:flex; align-items:center; gap:0.5rem">
+                        <svg width="18" height="18" style="color:var(--accent-sk)"><use href="#icon-key"/></svg>
+                        SK Provider Product & Date Inspector (GET /product/all)
+                    </h2>
+                    <p style="color:var(--text-muted); font-size:0.85rem; margin-top:0.25rem">
+                        Connect to the SK API to inspect product validity dates (<strong>createdAt</strong> &rarr; <strong>expireAt / deletedAt</strong>) and sync them with your domains. Credentials remain temporary in your browser session.
+                    </p>
+                </div>
+                <button class="btn btn-secondary" onclick="clearSkSession()" title="Clear temporary API inputs">
+                    Clear API Session
+                </button>
+            </div>
+
+            <!-- TEMPORARY INPUTS: sk_api_url + sk_api_key -->
+            <div class="sk-inputs-grid">
+                <div class="form-group">
+                    <label class="form-label">SK API URL (sk_api_url)</label>
+                    <input type="text" id="skApiUrl" class="form-control" placeholder="https://api.sk-provider.de">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">SK API Key (sk_api_key)</label>
+                    <input type="password" id="skApiKey" class="form-control" placeholder="Bearer / API Token">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Type Parameter</label>
+                    <select id="skType" class="form-control">
+                        <option value="all">All Products</option>
+                        <option value="domain">type: "domain"</option>
+                        <option value="server">type: "server"</option>
+                    </select>
+                </div>
+                <div>
+                    <button class="btn btn-sk" onclick="fetchSkProducts()">
+                        <svg width="14" height="14"><use href="#icon-refresh"/></svg>
+                        Fetch Products
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- SK PRODUCTS RESULTS -->
+        <div id="skResultsWrap" style="display:none;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:1rem">
+                <div>
+                    <h3 style="font-size:1.1rem; font-weight:700" id="skResultsTitle">Fetched SK Products</h3>
+                    <p style="color:var(--text-muted); font-size:0.82rem">Inspect date ranges and sync with editor domains.</p>
+                </div>
+                <div style="display:flex; gap:0.5rem">
+                    <button class="btn btn-primary" onclick="bulkSyncSkDates()">
+                        <svg width="14" height="14"><use href="#icon-refresh"/></svg>
+                        Bulk Sync All Matching SK Domains
+                    </button>
+                </div>
+            </div>
+
+            <div class="table-panel">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Product / Custom Name</th>
+                            <th>Type</th>
+                            <th>State</th>
+                            <th>Created At (From)</th>
+                            <th>Expire At (To)</th>
+                            <th>Deleted At</th>
+                            <th>Auto Renew</th>
+                            <th style="text-align:right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="skTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- VIEW 3: INITIAL ARRAY INPUT / CODE VIEW -->
     <div id="viewCode" style="display:none;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:1rem">
             <div>
@@ -769,11 +963,11 @@ textarea.form-control { resize: vertical; min-height: 80px; font-family: inherit
                     <div id="modalProviderCheckboxes" style="display:flex; flex-wrap:wrap; gap:0.4rem; padding-top:0.35rem"></div>
                 </div>
                 <div class="form-group">
-                    <label class="form-label">Registration Date</label>
+                    <label class="form-label">Registration Date (From)</label>
                     <input type="text" id="modalRegDate" class="form-control" placeholder="YYYY-MM-DD">
                 </div>
                 <div class="form-group">
-                    <label class="form-label">Expiry Date</label>
+                    <label class="form-label">Expiry Date (To)</label>
                     <input type="text" id="modalExpDate" class="form-control" placeholder="YYYY-MM-DD">
                 </div>
                 <div class="form-group full">
@@ -815,8 +1009,9 @@ let statsMetadata = [
     { label: 'Sold Domains', note: 'Not a marketplace.', muted: true }
 ];
 
-// In-Browser State (Stored purely in browser localStorage)
+// In-Browser State (Stored purely in browser localStorage / sessionStorage)
 let domains = [];
+let skProducts = [];
 let currentStatusFilter = 'all';
 let currentTldFilter = 'all';
 let currentProvFilter = 'all';
@@ -835,6 +1030,25 @@ try {
     console.warn('Storage load error', e);
 }
 
+// Load temporary SK API credentials from sessionStorage
+const skUrlInput = document.getElementById('skApiUrl');
+const skKeyInput = document.getElementById('skApiKey');
+if (sessionStorage.getItem('sk_api_url')) skUrlInput.value = sessionStorage.getItem('sk_api_url');
+if (sessionStorage.getItem('sk_api_key')) skKeyInput.value = sessionStorage.getItem('sk_api_key');
+
+skUrlInput.addEventListener('input', () => sessionStorage.setItem('sk_api_url', skUrlInput.value));
+skKeyInput.addEventListener('input', () => sessionStorage.setItem('sk_api_key', skKeyInput.value));
+
+function clearSkSession() {
+    sessionStorage.removeItem('sk_api_url');
+    sessionStorage.removeItem('sk_api_key');
+    skUrlInput.value = '';
+    skKeyInput.value = '';
+    skProducts = [];
+    document.getElementById('skResultsWrap').style.display = 'none';
+    showToast('SK temporary credentials cleared.', 'info');
+}
+
 function persistToBrowser() {
     try {
         localStorage.setItem('dnbx_browser_domains', JSON.stringify(domains));
@@ -851,9 +1065,13 @@ function showToast(msg, type = 'info') {
 
 function switchTab(tab) {
     document.getElementById('viewVisual').style.display = tab === 'visual' ? 'block' : 'none';
+    document.getElementById('viewSk').style.display = tab === 'sk' ? 'block' : 'none';
     document.getElementById('viewCode').style.display = tab === 'code' ? 'block' : 'none';
+    
     document.getElementById('tabBtnVisual').className = 'tab-btn ' + (tab === 'visual' ? 'active' : '');
+    document.getElementById('tabBtnSk').className = 'tab-btn ' + (tab === 'sk' ? 'active' : '');
     document.getElementById('tabBtnCode').className = 'tab-btn ' + (tab === 'code' ? 'active' : '');
+
     if (tab === 'code' && domains.length > 0) {
         document.getElementById('rawPhpTextarea').value = generatePurePhpCode();
     }
@@ -988,7 +1206,6 @@ function renderTable() {
             }
         }
 
-        // SVG chips without emojis
         const flagsHtml = `
             <span class="chip chip-premium ${d.is_premium ? 'active' : 'inactive'}" onclick="toggleFlag(${d._originalIndex}, 'is_premium')">
                 <svg width="11" height="11"><use href="#icon-star"/></svg> Premium
@@ -1259,6 +1476,227 @@ async function parsePastedArray() {
         alert('Error: ' + e.message);
         showToast(e.message, 'error');
     }
+}
+
+// ==========================================
+// SK PROVIDER API INTEGRATION (GET /product/all)
+// ==========================================
+
+async function fetchSkProducts() {
+    const url = skUrlInput.value.trim();
+    const key = skKeyInput.value.trim();
+    const type = document.getElementById('skType').value;
+
+    if (!url) {
+        alert('Please enter sk_api_url');
+        skUrlInput.focus();
+        return;
+    }
+    if (!key) {
+        alert('Please enter sk_api_key');
+        skKeyInput.focus();
+        return;
+    }
+
+    showToast('Connecting to SK API (GET /product/all)...', 'info');
+
+    const form = new FormData();
+    form.append('action', 'fetch_sk_products');
+    form.append('sk_api_url', url);
+    form.append('sk_api_key', key);
+    form.append('type', type);
+
+    try {
+        const res = await fetch('dnbx-editor.php?ajax=1', { method: 'POST', body: form });
+        const json = await res.json();
+        if (!json.success) throw new Error(json.error || 'SK fetch failed');
+
+        skProducts = json.products || [];
+        renderSkTable();
+        showToast(`Successfully fetched ${skProducts.length} SK products!`, 'success');
+    } catch (e) {
+        alert('SK API Error: ' + e.message);
+        showToast(e.message, 'error');
+    }
+}
+
+function renderSkTable() {
+    const wrap = document.getElementById('skResultsWrap');
+    const tbody = document.getElementById('skTableBody');
+    const title = document.getElementById('skResultsTitle');
+    
+    wrap.style.display = 'block';
+    title.textContent = `Fetched SK Products (${skProducts.length})`;
+    tbody.innerHTML = '';
+
+    if (skProducts.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:2rem; color:var(--text-faint)">No products returned from SK API.</td></tr>`;
+        return;
+    }
+
+    skProducts.forEach((p, idx) => {
+        const tr = document.createElement('tr');
+        const customName = p.customName || p.id || '–';
+        const pType = p.type || 'server';
+        const state = p.state || 'active';
+        const createdAt = p.createdAt || '–';
+        const expireAt = p.expireAt || '–';
+        const deletedAt = p.deletedAt && p.deletedAt !== '0000-00-00 00:00:00' ? p.deletedAt : '–';
+        const autoRenew = p.autoRenew ? 'Yes' : 'No';
+
+        // Check if there's a matching domain in our editor
+        const normalizedName = customName.toLowerCase().trim();
+        const matchingDomain = domains.find(d => {
+            const fullName = `${d.name}.${d.tld}`.toLowerCase();
+            return fullName === normalizedName || d.name.toLowerCase() === normalizedName;
+        });
+
+        tr.innerHTML = `
+            <td>
+                <strong>${escapeHtml(customName)}</strong>
+                ${matchingDomain ? `<span class="badge-provider badge-sk" style="margin-left:0.5rem">Matched Editor Domain</span>` : ''}
+            </td>
+            <td><span class="pill" style="font-size:0.7rem">${escapeHtml(pType)}</span></td>
+            <td><span class="status-pill">${escapeHtml(state)}</span></td>
+            <td><span style="font-family:var(--font-mono); font-size:0.8rem; color:var(--text-muted)">${escapeHtml(createdAt)}</span></td>
+            <td><span style="font-family:var(--font-mono); font-size:0.8rem; color:var(--warning)">${escapeHtml(expireAt)}</span></td>
+            <td><span style="font-family:var(--font-mono); font-size:0.8rem; color:var(--text-faint)">${escapeHtml(deletedAt)}</span></td>
+            <td><small>${autoRenew}</small></td>
+            <td style="text-align:right">
+                <button class="btn btn-secondary btn-icon" onclick="syncSingleSkProduct(${idx})" title="Sync dates into editor">
+                    <svg width="13" height="13"><use href="#icon-refresh"/></svg> Sync
+                </button>
+                <button class="btn btn-primary btn-icon" onclick="importSkProductAsDomain(${idx})" title="Import as new domain">
+                    <svg width="13" height="13"><use href="#icon-plus"/></svg>
+                </button>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+// Sync dates from SK product into matching editor domain
+function syncSingleSkProduct(idx) {
+    const p = skProducts[idx];
+    if (!p) return;
+    const customName = (p.customName || '').toLowerCase().trim();
+    if (!customName) {
+        alert('Product customName is empty, cannot match domain.');
+        return;
+    }
+
+    // Match by full domain name or SLD
+    let match = domains.find(d => `${d.name}.${d.tld}`.toLowerCase() === customName);
+    if (!match) {
+        match = domains.find(d => d.name.toLowerCase() === customName);
+    }
+
+    if (!match) {
+        if (confirm(`No domain matching "${customName}" found in editor. Would you like to create it as a new domain?`)) {
+            importSkProductAsDomain(idx);
+        }
+        return;
+    }
+
+    // Update dates
+    if (p.createdAt) match.registration_date = p.createdAt;
+    if (p.expireAt && p.expireAt !== '0000-00-00 00:00:00') {
+        match.expiry_date = p.expireAt;
+    } else if (p.deletedAt && p.deletedAt !== '0000-00-00 00:00:00') {
+        match.expiry_date = p.deletedAt;
+    }
+
+    // Ensure provider includes 'sk'
+    if (Array.isArray(match.provider_short)) {
+        if (!match.provider_short.includes('sk')) match.provider_short.push('sk');
+    } else if (match.provider_short !== 'sk') {
+        match.provider_short = [match.provider_short || 'nx', 'sk'];
+    }
+
+    persistToBrowser();
+    renderTable();
+    renderSkTable();
+    showToast(`Updated dates for ${match.name}.${match.tld} from SK!`, 'success');
+}
+
+// Bulk sync all matching SK domains
+function bulkSyncSkDates() {
+    if (skProducts.length === 0) {
+        alert('No SK products fetched yet.');
+        return;
+    }
+
+    let syncedCount = 0;
+    skProducts.forEach(p => {
+        const customName = (p.customName || '').toLowerCase().trim();
+        if (!customName) return;
+
+        let match = domains.find(d => `${d.name}.${d.tld}`.toLowerCase() === customName);
+        if (!match) {
+            match = domains.find(d => d.name.toLowerCase() === customName);
+        }
+
+        if (match) {
+            if (p.createdAt) match.registration_date = p.createdAt;
+            if (p.expireAt && p.expireAt !== '0000-00-00 00:00:00') {
+                match.expiry_date = p.expireAt;
+            } else if (p.deletedAt && p.deletedAt !== '0000-00-00 00:00:00') {
+                match.expiry_date = p.deletedAt;
+            }
+
+            if (Array.isArray(match.provider_short)) {
+                if (!match.provider_short.includes('sk')) match.provider_short.push('sk');
+            } else if (match.provider_short !== 'sk') {
+                match.provider_short = [match.provider_short || 'nx', 'sk'];
+            }
+            syncedCount++;
+        }
+    });
+
+    if (syncedCount > 0) {
+        persistToBrowser();
+        renderTable();
+        renderSkTable();
+        showToast(`Successfully synced dates for ${syncedCount} domains from SK!`, 'success');
+    } else {
+        alert('No matching domains found in the current editor list to sync.');
+    }
+}
+
+// Import an SK product directly as a new domain in the editor
+function importSkProductAsDomain(idx) {
+    const p = skProducts[idx];
+    if (!p) return;
+    const rawName = (p.customName || p.id || '').trim();
+    
+    // Split into SLD and TLD if contains a dot
+    let sld = rawName;
+    let tld = 'de';
+    if (rawName.includes('.')) {
+        const parts = rawName.split('.');
+        tld = parts.pop();
+        sld = parts.join('.');
+    }
+
+    const newDomain = {
+        owner_id: 1,
+        name: sld.toLowerCase(),
+        tld: tld.toLowerCase(),
+        registration_date: p.createdAt || '',
+        expiry_date: p.expireAt || p.deletedAt || '',
+        provider_short: 'sk',
+        description: `Imported from SK API (ID: ${p.id || ''})`,
+        is_premium: false,
+        is_phishing_prevention: false,
+        is_archived: p.state === 'deleted',
+    };
+
+    domains.unshift(newDomain);
+    persistToBrowser();
+    renderFilterPills();
+    renderTable();
+    renderSkTable();
+    showToast(`Imported ${newDomain.name}.${newDomain.tld} into editor!`, 'success');
 }
 
 function escapeHtml(s) {
