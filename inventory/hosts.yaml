@@ -78,7 +78,7 @@ hosts:
   - name: seven.web
     fqdn: seven.web.ternis.net
     addresses: [94.249.179.155]
-    infra_ref: eyl-net
+    infra_ref: kvm12.eyl
     role: web
     env: prod
     hosting: self-operated

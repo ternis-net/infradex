@@ -1865,6 +1865,18 @@ return [
             'is_1_1bil' => false,
             'is_phishing_prevention' => false
         ],
+        [
+            'owner_id' => 1,
+            'name' => 'emilialetizia',
+            'tld' => 'com',
+            'registration_date' => '',
+            'expiry_date' => '',
+            'provider_short' => 'nl',
+            'description' => null,
+            'is_premium' => false,
+            'is_1_1bil' => false,
+            'is_phishing_prevention' => false
+        ],
         
     
     
