@@ -4,25 +4,22 @@
  * Allows loading an "initial array" via file or direct paste, visual editing, and saving back to config.php.
  */
 
-const CONFIG_PATH = __DIR__ . '/inventory/domains/dnbx.php';
+const CONFIG_PATH = __DIR__ . '/inventory/domains/dnbx-domains.php';
 const TOKEN_FILE = __DIR__ . '/.edit-token';
 
-// Default KNOWN_PROVIDERS fallback (config.php defines the canonical const KNOWN_PROVIDERS)
-if (is_file(CONFIG_PATH)) {
-    // Include config to load const KNOWN_PROVIDERS if defined
-    $fileData = @include CONFIG_PATH;
-}
+$defaultProviders = [
+    'nx' => 'Nexserv',
+    'as' => 'A.S.',
+    'sk' => 'Sk.',
+    'cf' => 'Cloudflare',
+    'oc' => 'OVH Cloud',
+    'hz' => 'Hetzner',
+];
 
-if (!defined('KNOWN_PROVIDERS')) {
-    define('KNOWN_PROVIDERS', [
-        'nx' => 'Nexserv',
-        'as' => 'A.S.',
-        'sk' => 'Sk.',
-        'cf' => 'Cloudflare',
-        'oc' => 'OVH Cloud',
-        'hz' => 'Hetzner',
-    ]);
-}
+$fileData = is_file(CONFIG_PATH) ? (@include CONFIG_PATH) : [];
+$knownProviders = is_array($fileData) && isset($fileData['providers']) && is_array($fileData['providers'])
+    ? $fileData['providers']
+    : $defaultProviders;
 
 function get_auth_token(): string {
     $env = getenv('INFRADEx_EDIT_TOKEN');
@@ -69,13 +66,14 @@ function parse_php_array_code(string $code): array {
 }
 
 function serialize_to_config_php(array $domains, array $providers = [], ?array $statsMeta = null): string {
-    $provMap = !empty($providers) ? $providers : KNOWN_PROVIDERS;
+    global $knownProviders;
+    $provMap = !empty($providers) ? $providers : $knownProviders;
     
-    $out = "<?php\n\nif (!defined('KNOWN_PROVIDERS')) {\n    define('KNOWN_PROVIDERS', [\n";
+    $out = "<?php\n\nreturn [\n    'providers' => [\n";
     foreach ($provMap as $k => $v) {
         $out .= "        " . var_export((string)$k, true) . " => " . var_export((string)$v, true) . ",\n";
     }
-    $out .= "    ]);\n}\n\nreturn [\n    'providers' => KNOWN_PROVIDERS,\n    'domains' => [\n";
+    $out .= "    ],\n    'domains' => [\n";
     
     $currentOwner = null;
     foreach ($domains as $d) {
@@ -177,7 +175,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
                 ['label' => 'Sold Domains',    'note' => 'Not a marketplace.', 'muted' => true],
             ];
             
-            $code = serialize_to_config_php($domains, KNOWN_PROVIDERS, $stats);
+            $code = serialize_to_config_php($domains, $knownProviders, $stats);
             file_put_contents(CONFIG_PATH, $code);
             
             echo json_encode(['success' => true, 'count' => count($domains), 'timestamp' => date('H:i:s')]);
@@ -830,7 +828,7 @@ textarea.form-control { resize: vertical; min-height: 80px; font-family: inherit
 
 <script>
 // Known Providers from PHP
-const KNOWN_PROVIDERS = <?=json_encode(KNOWN_PROVIDERS)?>;
+const KNOWN_PROVIDERS = <?=json_encode($knownProviders)?>;
 
 // Client State
 let domains = <?=json_encode($initialDomains)?>;
@@ -1123,11 +1121,11 @@ function saveModalDomain() {
 
 // Generate Raw PHP Code
 function generatePhpCode() {
-    let out = "<?php\n\nif (!defined('KNOWN_PROVIDERS')) {\n    define('KNOWN_PROVIDERS', [\n";
+    let out = "<?php\n\nreturn [\n    'providers' => [\n";
     for (const [k, v] of Object.entries(KNOWN_PROVIDERS)) {
         out += `        '${k}' => '${v}',\n`;
     }
-    out += "    ]);\n}\n\nreturn [\n    'providers' => KNOWN_PROVIDERS,\n    'domains' => [\n";
+    out += "    ],\n    'domains' => [\n";
 
     let currentOwner = null;
     domains.forEach(d => {

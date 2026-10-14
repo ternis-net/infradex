@@ -9,10 +9,16 @@ if ($uri === '/' || $uri === '/index.php') {
         . '<meta name="viewport" content="width=device-width, initial-scale=1">'
         . '<title>infradex</title></head><body>'
         . '<h1>infradex</h1>'
-        . '<ul><li><a href="viewer.php">viewer.php</a> (read-only inventory)</li>'
+        . '<ul><li><a href="public/">public/</a> (public-facing infrastructure website)</li>'
+        . '<li><a href="viewer.php">viewer.php</a> (internal read-only inventory)</li>'
         . '<li><a href="editor.php">editor.php</a> (edit infra domains, token required)</li>'
         . '<li><a href="dnbx-editor.php">dnbx-editor.php</a> (visual editor for dnbx.de PHP array domains)</li></ul>'
         . '</body></html>';
+    return;
+}
+
+if ($uri === '/public' || $uri === '/public/') {
+    require __DIR__ . '/public/index.php';
     return;
 }
 

@@ -1,18 +1,14 @@
 <?php
 
-if (!defined('KNOWN_PROVIDERS')) {
-    define('KNOWN_PROVIDERS', [
+return [
+    'providers' => [
         'nx' => 'Nexserv',
         'as' => 'A.S.',
         'sk' => 'Sk.',
         'cf' => 'Cloudflare',
         'oc' => 'OVH Cloud',
         'hz' => 'Hetzner',
-    ]);
-}
-
-return [
-    'providers' => KNOWN_PROVIDERS,
+    ],
     'domains' => [
 
         // Owned by Founder-1
