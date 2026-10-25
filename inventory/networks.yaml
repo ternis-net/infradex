@@ -1,9 +1,24 @@
 version: 1
 networks:
-  - name: prod-nbg
-    prefixes: [2a01:4f8:1c16:475e::/64]
+  - name: prod-eyl-public
+    prefixes: [77.90.15.2, 77.90.15.3, 77.90.15.4, 77.90.15.49, 77.90.60.72, 77.90.60.110, 77.90.60.169, 77.90.61.239, 94.249.179.155, 94.249.188.145, 2a14:7c0:1002:10f4::, 2a14:7c0:1002:133a::, 2a14:7c0:1002:182d::]
     env: prod
-    note: Hetzner Cloud Nürnberg (NBG1)
+    note: Eyl public KVM single IPv4 & IPv6 addresses
+
+  - name: prod-fra
+    prefixes: [134.255.225.220]
+    env: prod
+    note: zap.cloud Frankfurt (kvm02.fra / vps02.fra)
+
+  - name: prod-nbg
+    prefixes: [178.104.11.60, 2a01:4f8:1c16:475e::/64]
+    env: prod
+    note: Hetzner Cloud Nürnberg (kvm01.nbg / NBG1)
+
+  - name: prod-external-plesk
+    prefixes: [185.223.31.153, 185.223.31.164]
+    env: prod
+    note: external Plesk web endpoints
 
   - name: lab-lan
     prefixes: [192.168.1.0/24, 192.168.2.0/24]
